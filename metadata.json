@@ -1,0 +1,6 @@
+{
+  "name": "ระบบจัดการออฟฟิศ",
+  "description": "ระบบจัดการภายในออฟฟิศอย่างเป็นระบบ ครอบคลุมระบบเบิกจ่ายพัสดุ ระบบจัดการวันลาของพนักงาน ข้อมูลประวัติบุคลากร และการตั้งค่าหน่วยงานอย่างมืออาชีพ",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
