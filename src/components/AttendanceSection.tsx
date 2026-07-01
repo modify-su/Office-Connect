@@ -21,7 +21,9 @@ import {
   FileText,
   Upload,
   ArrowRight,
-  Info
+  Info,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { Employee, UserAccount, AttendanceRecord, AttendanceType, SystemSettings } from '../types';
 
@@ -33,6 +35,7 @@ interface AttendanceSectionProps {
   onDeleteAttendance?: (id: string) => void; // Help admin manage mistakes
   currentUser?: UserAccount | null;
   settings: SystemSettings;
+  onAddEmployeeBatch?: (newEmployees: Omit<Employee, 'id'>[]) => void;
 }
 
 interface ParsedAttendanceItem {
@@ -46,6 +49,7 @@ interface ParsedAttendanceItem {
   notes?: string;
   isValid: boolean;
   errorMsg?: string;
+  willAutoRegister?: boolean;
 }
 
 // Helper to get Thai Day of Week without timezone shifts
@@ -66,6 +70,16 @@ export const getDayOfWeekThai = (dateString: string): string => {
   }
 };
 
+// Helper to strip Thai titles and whitespaces for robust name matching
+export const stripThaiTitles = (name: string): string => {
+  if (!name) return '';
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/^(นาย|นางสาว|นาง|น\.ส\.|ดร\.|คุณ|นส\.)\s*/g, '')
+    .replace(/\s+/g, '');
+};
+
 export default function AttendanceSection({
   attendanceRecords,
   employees,
@@ -73,7 +87,8 @@ export default function AttendanceSection({
   onAddAttendanceBatch,
   onDeleteAttendance,
   currentUser,
-  settings
+  settings,
+  onAddEmployeeBatch
 }: AttendanceSectionProps) {
   const isEmployee = currentUser?.role === 'employee';
   
@@ -94,6 +109,12 @@ export default function AttendanceSection({
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('All');
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
   const [selectedEmployeeFilter, setSelectedEmployeeFilter] = useState<string>('All');
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Reset page to 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedTypeFilter, selectedDateFilter, selectedEmployeeFilter]);
 
   // Input states for clocking in/out (manual)
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>(() => {
@@ -106,13 +127,23 @@ export default function AttendanceSection({
   const [otHours, setOtHours] = useState<number>(1);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // States for searchable manual employee dropdown
+  const [employeeSearchTerm, setEmployeeSearchTerm] = useState('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+
   // States for importing Excel/CSV
   const [importFile, setImportFile] = useState<File | null>(null);
   const [parsedImportRows, setParsedImportRows] = useState<ParsedAttendanceItem[]>([]);
   const [importEmployeeFilter, setImportEmployeeFilter] = useState<string>('All');
+  const [importCurrentPage, setImportCurrentPage] = useState(1);
   const [isDragging, setIsDragging] = useState(false);
   const [importNotification, setImportNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Reset import page to 1 when import filters or data change
+  useEffect(() => {
+    setImportCurrentPage(1);
+  }, [importEmployeeFilter, parsedImportRows.length]);
 
   // Sync selected employee ID if user session changes
   useEffect(() => {
@@ -121,7 +152,27 @@ export default function AttendanceSection({
     }
   }, [currentUser, isEmployee]);
 
+  // Synchronize search text when selected employee ID changes
+  useEffect(() => {
+    const emp = employees.find(e => e.employeeId === selectedEmployeeId);
+    if (emp) {
+      setEmployeeSearchTerm(`${emp.firstName} ${emp.lastName}`);
+    } else {
+      setEmployeeSearchTerm('');
+    }
+  }, [selectedEmployeeId, employees]);
+
   const activeEmployee = employees.find(emp => emp.employeeId === selectedEmployeeId);
+
+  // Filter employees for manual log combobox
+  const filteredEmployeesForManualSelect = employees.filter(emp => {
+    const term = employeeSearchTerm.toLowerCase();
+    const fullName = `${emp.firstName} ${emp.lastName}`.toLowerCase();
+    return emp.employeeId.toLowerCase().includes(term) ||
+           fullName.includes(term) ||
+           emp.department.toLowerCase().includes(term) ||
+           emp.position.toLowerCase().includes(term);
+  });
 
   // Helper to format today's date in Thai/local format
   const getThaiDateString = (dateObj: Date) => {
@@ -256,10 +307,10 @@ export default function AttendanceSection({
             const normalizedKey = key.trim().toLowerCase();
             const stringVal = String(val).trim();
             
-            if (normalizedKey === 'รหัสพนักงาน' || normalizedKey.includes('รหัส') || normalizedKey.includes('id') || normalizedKey.includes('emp')) {
-              employeeId = stringVal;
-            } else if (normalizedKey === 'ชื่อพนักงาน' || normalizedKey.includes('ชื่อ') || normalizedKey.includes('name') || normalizedKey.includes('employee')) {
+            if (normalizedKey.includes('ชื่อ') || normalizedKey.includes('name')) {
               employeeNameVal = stringVal;
+            } else if (normalizedKey === 'รหัสพนักงาน' || normalizedKey.includes('รหัส') || normalizedKey.includes('id') || normalizedKey.includes('emp')) {
+              employeeId = stringVal;
             } else if (normalizedKey.includes('วัน') || normalizedKey.includes('date')) {
               dateStr = stringVal;
             } else if (normalizedKey.includes('เวลาเข้า') || normalizedKey.includes('clock_in') || normalizedKey.includes('clockin') || normalizedKey.includes('time_in') || normalizedKey.includes('timein') || (normalizedKey.includes('เข้า') && normalizedKey.includes('เวลา'))) {
@@ -328,35 +379,47 @@ export default function AttendanceSection({
           let emp = employees.find(e => employeeId && e.employeeId.toUpperCase() === employeeId.toUpperCase());
           
           if (!emp && employeeNameVal) {
-            // Try matching by first and last name combinations
-            const cleanNameVal = employeeNameVal.replace(/\s+/g, '').toLowerCase();
+            // Robust match using stripThaiTitles
+            const cleanImportedName = stripThaiTitles(employeeNameVal);
             emp = employees.find(e => {
-              const fullName1 = (e.firstName + e.lastName).replace(/\s+/g, '').toLowerCase();
-              const fullName2 = (e.firstName + ' ' + e.lastName).replace(/\s+/g, '').toLowerCase();
-              return cleanNameVal === fullName1 || 
-                     cleanNameVal === fullName2 || 
-                     cleanNameVal.includes(e.firstName.toLowerCase()) ||
-                     e.firstName.toLowerCase().includes(cleanNameVal);
+              const cleanFirstName = stripThaiTitles(e.firstName);
+              const cleanLastName = stripThaiTitles(e.lastName);
+              const cleanDbFullName = cleanFirstName + cleanLastName;
+              
+              return cleanImportedName === cleanDbFullName || 
+                     cleanImportedName === cleanFirstName ||
+                     cleanImportedName.includes(cleanFirstName) ||
+                     cleanDbFullName.includes(cleanImportedName);
             });
           }
 
-          let empName = employeeNameVal || 'ไม่พบบัญชีพนักงานในระบบ';
-          let isValid = !!emp;
-          let errorMsg = emp ? undefined : 'ไม่พบรหัสหรือชื่อพนักงานในฐานข้อมูล';
-          
+          let empName = employeeNameVal || '';
+          let finalEmpId = employeeId || '';
+          let isValid = true;
+          let errorMsg = undefined;
+          let willAutoRegister = false;
+
           if (emp) {
             empName = `${emp.firstName} ${emp.lastName}`;
-            if (!employeeId) {
-              employeeId = emp.employeeId;
+            finalEmpId = emp.employeeId;
+          } else {
+            // If the employee is not found in database, we can auto-register them
+            if (employeeNameVal || employeeId) {
+              willAutoRegister = true;
+              isValid = true;
+              if (!finalEmpId) {
+                // Generate automatic ID
+                finalEmpId = 'EMP-' + String(100 + employees.length + rowIndex).padStart(3, '0');
+              }
+              if (!empName) {
+                empName = `พนักงานใหม่ (${finalEmpId})`;
+              }
+            } else {
+              isValid = false;
+              errorMsg = 'ไม่ระบุรหัสหรือชื่อพนักงาน';
+              empName = 'ไม่ระบุชื่อพนักงาน';
             }
           }
-          
-          if (!employeeId && !emp) {
-            isValid = false;
-            errorMsg = 'ไม่ระบุรหัสหรือชื่อพนักงาน';
-          }
-
-          const finalEmpId = emp ? emp.employeeId : employeeId;
 
           // Helper to build a record item
           const createRecordItem = (time: string, type: AttendanceType, otHours?: number, extraNote?: string): ParsedAttendanceItem => {
@@ -370,7 +433,8 @@ export default function AttendanceSection({
               otHours,
               notes: extraNote || notesVal || undefined,
               isValid,
-              errorMsg
+              errorMsg,
+              willAutoRegister
             };
           };
 
@@ -431,11 +495,81 @@ export default function AttendanceSection({
           }
         });
         
-        setParsedImportRows(parsedItems);
+        // Group parsedItems by employeeId + date to analyze total working hours per day and auto-analyze OT
+        const groupedByDay: { [key: string]: ParsedAttendanceItem[] } = {};
+        parsedItems.forEach(item => {
+          const key = `${item.employeeId}_${item.date}`;
+          if (!groupedByDay[key]) {
+            groupedByDay[key] = [];
+          }
+          groupedByDay[key].push(item);
+        });
+
+        const finalParsedItems = [...parsedItems];
+        let autoOtCount = 0;
+        
+        Object.entries(groupedByDay).forEach(([groupKey, items]) => {
+          // Skip if there is already an overtime record defined in the Excel for this employee/day
+          const hasOt = items.some(item => item.type === 'overtime');
+          if (hasOt) return;
+          
+          // Find earliest start (clock_in or late) and latest end (clock_out)
+          const inRecords = items.filter(item => item.type === 'clock_in' || item.type === 'late');
+          const outRecords = items.filter(item => item.type === 'clock_out');
+          
+          if (inRecords.length > 0 && outRecords.length > 0) {
+            inRecords.sort((a, b) => a.time.localeCompare(b.time));
+            const earliestIn = inRecords[0];
+            
+            outRecords.sort((a, b) => b.time.localeCompare(a.time));
+            const latestOut = outRecords[0];
+            
+            const [inH, inM] = earliestIn.time.split(':').map(Number);
+            const [outH, outM] = latestOut.time.split(':').map(Number);
+            
+            const inDec = inH + (inM / 60);
+            const outDec = outH + (outM / 60);
+            let elapsed = outDec - inDec;
+            if (elapsed < 0) {
+              elapsed += 24; // crossing midnight
+            }
+            
+            // Standard shift is 8 working hours + 1 hour lunch break = 9 hours elapsed
+            // Any working hours (elapsed minus 1 hour break) exceeding 8 hours is OT
+            if (elapsed > 9) {
+              const workHrs = elapsed - 1;
+              const rawOt = workHrs - 8;
+              const autoOtHrs = Math.round(rawOt * 2) / 2; // round to nearest 0.5 hours
+              
+              if (autoOtHrs > 0) {
+                const otTime = latestOut.time;
+                
+                const otRecord: ParsedAttendanceItem = {
+                  tempId: 'temp-' + earliestIn.employeeId + '-' + earliestIn.date + '-auto-ot-' + Math.random().toString(36).substr(2, 4),
+                  employeeId: earliestIn.employeeId,
+                  employeeName: earliestIn.employeeName,
+                  date: earliestIn.date,
+                  time: otTime,
+                  type: 'overtime',
+                  otHours: autoOtHrs,
+                  notes: `วิเคราะห์ OT ออโต้: ${autoOtHrs} ชม. (จากเวลารวมทำงานจริง ${workHrs.toFixed(1)} ชม. หลังหักเวลาพัก 1 ชม. และหักเวลาทำงานปกติ 8 ชม.)`,
+                  isValid: earliestIn.isValid,
+                  errorMsg: earliestIn.errorMsg,
+                  willAutoRegister: earliestIn.willAutoRegister
+                };
+                
+                finalParsedItems.push(otRecord);
+                autoOtCount++;
+              }
+            }
+          }
+        });
+
+        setParsedImportRows(finalParsedItems);
         setImportEmployeeFilter('All');
         setImportNotification({ 
           type: 'success', 
-          message: `วิเคราะห์ไฟล์ "${file.name}" สำเร็จ ตรวจพบข้อมูลทั้งหมด ${parsedItems.length} รายการ กรุณาตรวจสอบและกดบันทึกความถูกต้องก่อนยืนยันนำเข้า` 
+          message: `วิเคราะห์ไฟล์ "${file.name}" สำเร็จ ตรวจพบข้อมูลบันทึกเวลาหลัก ${parsedItems.length} รายการ และระบุชั่วโมงทำงานเฉลี่ยที่เกิน 8 ชั่วโมงต่อวัน เพื่อเพิ่มบันทึก OT อัตโนมัติอีก ${autoOtCount} รายการ กรุณาตรวจสอบและกดบันทึกความถูกต้องก่อนยืนยันนำเข้า` 
         });
       } catch (err: any) {
         console.error(err);
@@ -492,6 +626,48 @@ export default function AttendanceSection({
       return;
     }
 
+    // Auto-register missing employees
+    const missingEmployeesMap = new Map<string, { employeeId: string; employeeName: string }>();
+    validRows.forEach(row => {
+      if (row.willAutoRegister) {
+        const key = row.employeeId.toUpperCase();
+        if (!missingEmployeesMap.has(key)) {
+          missingEmployeesMap.set(key, {
+            employeeId: row.employeeId,
+            employeeName: row.employeeName
+          });
+        }
+      }
+    });
+
+    if (missingEmployeesMap.size > 0 && onAddEmployeeBatch) {
+      const empsToAdd: Omit<Employee, 'id'>[] = Array.from(missingEmployeesMap.values()).map(item => {
+        const nameParts = item.employeeName.trim().split(/\s+/);
+        const firstName = nameParts[0];
+        const lastName = nameParts.slice(1).join(' ') || 'นำเข้าจากระบบ';
+        
+        return {
+          employeeId: item.employeeId,
+          firstName,
+          lastName,
+          position: 'พนักงานทั่วไป',
+          department: 'ฝ่ายบริหารองค์กร',
+          email: `emp.${item.employeeId.toLowerCase().replace(/[^a-z0-9]/g, '')}@office.co.th`,
+          phone: '-',
+          startDate: new Date().toISOString().split('T')[0],
+          status: 'active',
+          avatar: '',
+          personalId: '-',
+          birthDate: '1990-01-01',
+          address: '-',
+          emergencyContact: { name: '-', relationship: '-', phone: '-' },
+          verificationStatus: 'verified'
+        };
+      });
+
+      onAddEmployeeBatch(empsToAdd);
+    }
+
     const recordsToSave: AttendanceRecord[] = validRows.map(row => ({
       id: 'att-' + Math.random().toString(36).substr(2, 9) + '-' + Date.now(),
       employeeId: row.employeeId,
@@ -536,7 +712,8 @@ export default function AttendanceSection({
         "วันที่ (Date YYYY-MM-DD)*": "2026-06-30",
         "เวลาเข้างาน (Clock In Time)": "08:15:00",
         "เวลาออกงาน (Clock Out Time)": "17:35:00",
-        "ชั่วโมง OT (OT Hours)": "2",
+        "ชั่วโมงทำงานรวม (Total Hours)": "",
+        "ชั่วโมง OT (OT Hours)": "",
         "หมายเหตุ / บันทึก (Notes)": "ปกติ ทำงานล่วงเวลาโครงการเร่งด่วน"
       },
       {
@@ -546,12 +723,23 @@ export default function AttendanceSection({
         "วันที่ (Date YYYY-MM-DD)*": "2026-06-30",
         "เวลาเข้างาน (Clock In Time)": "08:45:00",
         "เวลาออกงาน (Clock Out Time)": "17:30:00",
+        "ชั่วโมงทำงานรวม (Total Hours)": "",
         "ชั่วโมง OT (OT Hours)": "",
         "หมายเหตุ / บันทึก (Notes)": "เข้าสายเนื่องจากระบบรถไฟฟ้าขัดข้อง"
       }
     ];
 
     const ws = XLSX.utils.json_to_sheet(templateData);
+
+    // Add formula calculations to example rows in the Excel template (E = Clock In, F = Clock Out, G = Total Hours, H = OT Hours)
+    // Formula for Total Hours: =(F2-E2)*24 - 1 (deducting 1 hour standard break, floor of 0)
+    // Formula for OT Hours: if Total Hours > 8, then Total Hours - 8, else 0
+    ws['G2'] = { t: 'n', v: 8.33, f: 'IF(AND(E2<>"", F2<>""), ROUND(MAX(0, (F2-E2)*24 - 1), 2), 0)' };
+    ws['H2'] = { t: 'n', v: 0.33, f: 'IF(G2>8, ROUND(G2-8, 2), 0)' };
+
+    ws['G3'] = { t: 'n', v: 7.75, f: 'IF(AND(E3<>"", F3<>""), ROUND(MAX(0, (F3-E3)*24 - 1), 2), 0)' };
+    ws['H3'] = { t: 'n', v: 0, f: 'IF(G3>8, ROUND(G3-8, 2), 0)' };
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Attendance Template");
     
@@ -563,7 +751,8 @@ export default function AttendanceSection({
       { wch: 22 }, // Date
       { wch: 25 }, // Clock In Time
       { wch: 25 }, // Clock Out Time
-      { wch: 20 }, // OT Hours
+      { wch: 28 }, // Total Hours with formula
+      { wch: 20 }, // OT Hours with formula
       { wch: 40 }  // Notes
     ];
 
@@ -610,6 +799,11 @@ export default function AttendanceSection({
 
     return matchesSearch && matchesType && matchesDate && matchesEmployee;
   });
+
+  // Pagination Config
+  const itemsPerPage = 40;
+  const totalPages = Math.ceil(filteredRecords.length / itemsPerPage) || 1;
+  const paginatedRecords = filteredRecords.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   // Calculate statistics based on filtered data (or total data depending on user choice)
   const activeStatsEmployeeId = isEmployee ? currentUser?.employeeId : (selectedEmployeeFilter !== 'All' ? selectedEmployeeFilter : null);
@@ -695,6 +889,7 @@ export default function AttendanceSection({
       dates: Set<string>;
       isValid: boolean;
       errors: string[];
+      willAutoRegister: boolean;
     }> = {};
 
     parsedImportRows.forEach(row => {
@@ -711,7 +906,8 @@ export default function AttendanceSection({
           totalOtHours: 0,
           dates: new Set(),
           isValid: true,
-          errors: []
+          errors: [],
+          willAutoRegister: false
         };
       }
       
@@ -726,6 +922,10 @@ export default function AttendanceSection({
         g.totalOtHours += row.otHours || 0;
       }
       
+      if (row.willAutoRegister) {
+        g.willAutoRegister = true;
+      }
+
       if (!row.isValid) {
         g.isValid = false;
         if (row.errorMsg && !g.errors.includes(row.errorMsg)) {
@@ -950,23 +1150,84 @@ export default function AttendanceSection({
                       <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold">บัญชีผู้ใช้จริงของคุณ</span>
                     </div>
                   ) : (
-                    // Admin mode: Beautiful dropdown to select any employee
+                    // Admin mode: Beautiful searchable combobox to select any employee
                     <div className="relative">
-                      <select
-                        value={selectedEmployeeId}
-                        onChange={(e) => setSelectedEmployeeId(e.target.value)}
-                        className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-3 text-sm text-slate-800 font-semibold focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-sm cursor-pointer appearance-none"
-                        id="employee-select-attendance-dropdown"
-                      >
-                        {employees.map(emp => (
-                          <option key={emp.employeeId} value={emp.employeeId} className="font-semibold text-slate-800">
-                            [{emp.employeeId}] - {emp.firstName} {emp.lastName} ({emp.department})
-                          </option>
-                        ))}
-                      </select>
-                      <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none text-slate-400 text-xs">
-                        ▼
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="พิมพ์เพื่อค้นหาพนักงานด้วยชื่อ หรือรหัส..."
+                          value={employeeSearchTerm}
+                          onChange={(e) => {
+                            setEmployeeSearchTerm(e.target.value);
+                            setIsDropdownOpen(true);
+                          }}
+                          onFocus={() => setIsDropdownOpen(true)}
+                          onBlur={() => {
+                            // Small timeout to allow clicking a dropdown selection item before blur event
+                            setTimeout(() => setIsDropdownOpen(false), 200);
+                          }}
+                          className="w-full bg-white border border-slate-200 rounded-xl pl-3.5 pr-10 py-3 text-sm text-slate-800 font-semibold focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-sm"
+                          id="employee-search-input"
+                        />
+                        <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-400">
+                          <Search className="w-4 h-4" />
+                        </div>
                       </div>
+
+                      {/* Custom Dropdown Overlay */}
+                      {isDropdownOpen && (
+                        <div className="absolute z-50 mt-1.5 w-full bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-y-auto py-1">
+                          {filteredEmployeesForManualSelect.length > 0 ? (
+                            filteredEmployeesForManualSelect.map(emp => {
+                              const isSelected = emp.employeeId === selectedEmployeeId;
+                              return (
+                                <button
+                                  key={emp.employeeId}
+                                  type="button"
+                                  onMouseDown={() => {
+                                    // Use onMouseDown instead of onClick to fire before input's onBlur clears the active element
+                                    setSelectedEmployeeId(emp.employeeId);
+                                    setEmployeeSearchTerm(`${emp.firstName} ${emp.lastName}`);
+                                    setIsDropdownOpen(false);
+                                  }}
+                                  className={`w-full text-left px-4 py-2.5 text-xs font-semibold flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer ${
+                                    isSelected ? 'bg-blue-50 text-blue-700' : 'text-slate-700'
+                                  }`}
+                                >
+                                  <div>
+                                    <span className="font-mono text-blue-600 mr-1.5 font-bold">[{emp.employeeId}]</span>
+                                    <span>{emp.firstName} {emp.lastName}</span>
+                                    <span className="text-[10px] text-slate-400 font-medium ml-2">({emp.department})</span>
+                                  </div>
+                                  {isSelected && (
+                                    <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                  )}
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="px-4 py-3 text-xs font-bold text-slate-400 text-center">
+                              ไม่พบพนักงานที่ตรงกับคำค้นหา
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Active Selection Info Overlay */}
+                      {activeEmployee && (
+                        <div className="mt-2 bg-slate-50 border border-slate-100 rounded-xl px-3.5 py-2.5 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-[11px] font-extrabold flex items-center justify-center">
+                              {activeEmployee.firstName[0]}
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-slate-800">{activeEmployee.firstName} {activeEmployee.lastName}</p>
+                              <p className="text-[10px] font-mono text-slate-500 font-semibold">{activeEmployee.employeeId} • {activeEmployee.department} • {activeEmployee.position}</p>
+                            </div>
+                          </div>
+                          <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-100/60 px-2 py-0.5 rounded-full font-bold">พนักงานปัจจุบัน</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1134,7 +1395,7 @@ export default function AttendanceSection({
                 เครื่องมือนำเข้าข้อมูลบันทึกเวลาทำงานผ่านไฟล์ Excel / CSV
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                ระบบจะวิเคราะห์ประเมิน "การมาสาย" และจับคู่บัญชีพนักงานให้โดยอัตโนมัติอ้างอิงจากรหัสพนักงานในไฟล์
+                ระบบจะวิเคราะห์ "การมาสาย" จับคู่บัญชีพนักงาน และ <strong className="text-indigo-600 font-bold">วิเคราะห์แยก OT อัตโนมัติ (อิงเวลารวมที่เกิน 8 ชม. ทำงานจริง/วัน)</strong> ให้ทันที
               </p>
             </div>
             
@@ -1248,14 +1509,20 @@ export default function AttendanceSection({
                           isSelected
                             ? 'bg-indigo-50/70 border-indigo-500 ring-2 ring-indigo-500/10'
                             : item.isValid 
-                              ? 'bg-white hover:bg-slate-100/50 border-slate-200' 
+                              ? item.willAutoRegister
+                                ? 'bg-blue-50/20 hover:bg-blue-50/40 border-blue-200'
+                                : 'bg-white hover:bg-slate-100/50 border-slate-200' 
                               : 'bg-rose-50/20 hover:bg-rose-50/30 border-rose-200/80'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2.5">
                           <div className="flex items-center gap-2.5 truncate">
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
-                              item.isValid ? 'bg-indigo-100 text-indigo-700' : 'bg-rose-100 text-rose-700'
+                              item.isValid 
+                                ? item.willAutoRegister
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-indigo-100 text-indigo-700' 
+                                : 'bg-rose-100 text-rose-700'
                             }`}>
                               {item.employeeName ? item.employeeName.substring(0, 2) : '??'}
                             </div>
@@ -1271,10 +1538,12 @@ export default function AttendanceSection({
                           
                           <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase shrink-0 ${
                             item.isValid 
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
+                              ? item.willAutoRegister
+                                ? 'bg-blue-50 text-blue-700 border border-blue-100'
+                                : 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
                               : 'bg-rose-50 text-rose-700 border border-rose-150'
                           }`}>
-                            {item.isValid ? 'ข้อมูลปกติ' : 'รหัสผิดพลาด'}
+                            {item.isValid ? item.willAutoRegister ? 'ผู้ใช้ใหม่ (สมัครออโต้)' : 'ข้อมูลปกติ' : 'รหัสผิดพลาด'}
                           </span>
                         </div>
 
@@ -1300,6 +1569,14 @@ export default function AttendanceSection({
                           </div>
                         </div>
 
+                        {/* Auto Register Info */}
+                        {item.isValid && item.willAutoRegister && (
+                          <div className="mt-2 text-[10px] text-blue-700 font-bold flex items-center gap-1 bg-blue-50/50 p-1.5 rounded-lg border border-blue-100/30">
+                            <Info className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                            <span className="truncate">ระบบจะสร้างประวัติพนักงานให้อัตโนมัติ</span>
+                          </div>
+                        )}
+
                         {/* Error warning list if invalid */}
                         {!item.isValid && item.errors.length > 0 && (
                           <div className="mt-2 text-[10px] text-rose-600 font-medium flex items-center gap-1 bg-rose-50/50 p-1.5 rounded-lg border border-rose-100/30">
@@ -1321,173 +1598,261 @@ export default function AttendanceSection({
                 </div>
               </div>
 
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
-                    <FileText className="w-4 h-4 text-slate-500" />
-                    ตารางรายละเอียดบันทึกรายคน {importEmployeeFilter !== 'All' ? `(แสดงเฉพาะพนักงาน: ${importEmployeeFilter})` : `(${parsedImportRows.length} รายการ)`}
-                  </h4>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    คุณสามารถแก้ไขประเภทลงเวลา (เข้างาน / สาย / OT) หรือเขียนโน้ตชี้แจงก่อนกดยืนยันบันทึกได้รายบรรทัด
-                  </p>
-                </div>
+              {(() => {
+                const filteredRows = parsedImportRows.filter(row => {
+                  if (importEmployeeFilter === 'All') return true;
+                  return (row.employeeId || '').toUpperCase() === importEmployeeFilter.toUpperCase() || row.employeeName === importEmployeeFilter;
+                });
                 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      setParsedImportRows([]);
-                      setImportFile(null);
-                      setImportEmployeeFilter('All');
-                      setImportNotification(null);
-                    }}
-                    className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 font-bold text-xs py-2 px-3.5 rounded-xl transition cursor-pointer"
-                  >
-                    ล้างข้อมูลที่เลือก
-                  </button>
-                  <button
-                    onClick={handleConfirmImport}
-                    className="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-extrabold text-xs py-2.5 px-5 rounded-xl transition duration-150 flex items-center gap-1.5 shadow-md shadow-indigo-100 cursor-pointer"
-                  >
-                    <Check className="w-4 h-4" />
-                    ยืนยันนำเข้ารายการที่ถูกต้อง ({parsedImportRows.filter(r => r.isValid).length} แถว)
-                  </button>
-                </div>
-              </div>
+                const importItemsPerPage = 40;
+                const importTotalPages = Math.ceil(filteredRows.length / importItemsPerPage) || 1;
+                const activeImportPage = Math.min(importCurrentPage, importTotalPages);
+                const paginatedRows = filteredRows.slice(
+                  (activeImportPage - 1) * importItemsPerPage,
+                  activeImportPage * importItemsPerPage
+                );
 
-              {/* Data Table */}
-              <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50">
-                      <th className="py-3 px-4 w-[100px]">ตรวจสอบ</th>
-                      <th className="py-3 px-3">รหัสพนักงาน</th>
-                      <th className="py-3 px-3">พนักงาน</th>
-                      <th className="py-3 px-3">วันที่บันทึก</th>
-                      <th className="py-3 px-3">เวลา</th>
-                      <th className="py-3 px-3 w-[160px]">ประเภทเวลา (แก้ไขได้)</th>
-                      <th className="py-3 px-3 w-[120px]">ชั่วโมง OT</th>
-                      <th className="py-3 px-3">หมายเหตุ / บันทึกชี้แจง</th>
-                      <th className="py-3 px-4 text-center">ลบ</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                    {parsedImportRows.filter(row => {
-                      if (importEmployeeFilter === 'All') return true;
-                      return (row.employeeId || '').toUpperCase() === importEmployeeFilter.toUpperCase() || row.employeeName === importEmployeeFilter;
-                    }).map((row) => (
-                      <tr 
-                        key={row.tempId} 
-                        className={`hover:bg-slate-50/60 transition ${
-                          !row.isValid ? 'bg-rose-50/40 hover:bg-rose-50/60' : ''
-                        }`}
-                      >
-                        <td className="py-2.5 px-4">
-                          {row.isValid ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-full font-bold">
-                              <Check className="w-3 h-3" /> ผ่านเกณฑ์
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-[10px] bg-rose-50 text-rose-700 border border-rose-100 px-2 py-0.5 rounded-full font-bold" title={row.errorMsg}>
-                              <AlertCircle className="w-3 h-3" /> ล้มเหลว
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <input
-                            type="text"
-                            value={row.employeeId}
-                            onChange={(e) => {
-                              const val = e.target.value.trim();
-                              const matchedEmp = employees.find(emp => emp.employeeId.toUpperCase() === val.toUpperCase());
-                              handleUpdateParsedRow(row.tempId, { 
-                                employeeId: val,
-                                employeeName: matchedEmp ? `${matchedEmp.firstName} ${matchedEmp.lastName}` : 'ไม่พบบัญชีพนักงานในฐานข้อมูล',
-                                isValid: !!matchedEmp,
-                                errorMsg: matchedEmp ? undefined : 'ไม่พบรหัสพนักงานในระบบ'
-                              });
-                            }}
-                            className="bg-transparent border-b border-dashed border-slate-300 focus:border-indigo-500 focus:outline-none w-20 font-mono font-semibold py-0.5 text-slate-800"
-                            placeholder="EMP-XXX"
-                          />
-                        </td>
-                        <td className="py-2.5 px-3 font-bold text-slate-800">
-                          {row.employeeName}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono">
-                          <div className="flex flex-col">
-                            <input
-                              type="date"
-                              value={row.date}
-                              onChange={(e) => handleUpdateParsedRow(row.tempId, { date: e.target.value })}
-                              className="bg-transparent border-none focus:outline-none py-0.5 font-semibold text-slate-700 font-mono text-[11px] min-w-[125px]"
-                            />
-                            {row.date && (
-                              <span className="text-[10px] text-indigo-600 font-bold mt-0.5 ml-1">
-                                วัน{getDayOfWeekThai(row.date)}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-3 font-mono">
-                          <input
-                            type="text"
-                            value={row.time}
-                            onChange={(e) => handleUpdateParsedRow(row.tempId, { time: e.target.value.trim() })}
-                            className="bg-transparent border-none focus:outline-none py-0.5 font-bold text-slate-800 font-mono"
-                          />
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <select
-                            value={row.type}
-                            onChange={(e) => handleUpdateParsedRow(row.tempId, { type: e.target.value as AttendanceType })}
-                            className="bg-white border border-slate-200 rounded-lg py-1 px-2 font-bold text-[11px] text-slate-700 cursor-pointer shadow-sm focus:outline-none"
-                          >
-                            <option value="clock_in">เข้างานปกติ</option>
-                            <option value="clock_out">ออกงานปกติ</option>
-                            <option value="late">เข้าสาย</option>
-                            <option value="overtime">ทำงานล่วงเวลา (OT)</option>
-                          </select>
-                        </td>
-                        <td className="py-2.5 px-3">
-                          {row.type === 'overtime' ? (
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="number"
-                                min="0.5"
-                                max="12"
-                                step="0.5"
-                                value={row.otHours || 1}
-                                onChange={(e) => handleUpdateParsedRow(row.tempId, { otHours: parseFloat(e.target.value) || 1 })}
-                                className="w-12 bg-white border border-slate-200 rounded px-1.5 py-0.5 font-bold font-mono text-center text-slate-700"
-                              />
-                              <span className="text-[10px] text-slate-400">ชม.</span>
-                            </div>
-                          ) : (
-                            <span className="text-slate-350">-</span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <input
-                            type="text"
-                            value={row.notes || ''}
-                            onChange={(e) => handleUpdateParsedRow(row.tempId, { notes: e.target.value })}
-                            className="bg-transparent hover:bg-slate-50 focus:bg-white border-b border-dashed border-slate-200 focus:border-indigo-400 focus:outline-none w-full py-0.5 text-xs text-slate-600 placeholder-slate-350"
-                            placeholder="โน้ตเพิ่มเติม..."
-                          />
-                        </td>
-                        <td className="py-2.5 px-4 text-center">
+                return (
+                  <>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div>
+                        <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                          <FileText className="w-4 h-4 text-slate-500" />
+                          ตารางรายละเอียดบันทึกรายคน {importEmployeeFilter !== 'All' ? `(แสดงเฉพาะพนักงาน: ${importEmployeeFilter})` : `(${filteredRows.length} รายการ)`}
+                        </h4>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          คุณสามารถแก้ไขประเภทลงเวลา (เข้างาน / สาย / OT) หรือเขียนโน้ตชี้แจงก่อนกดยืนยันบันทึกได้รายบรรทัด (กำลังแสดงหน้า {activeImportPage} จากทั้งหมด {importTotalPages} หน้า)
+                        </p>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setParsedImportRows([]);
+                            setImportFile(null);
+                            setImportEmployeeFilter('All');
+                            setImportNotification(null);
+                          }}
+                          className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 font-bold text-xs py-2 px-3.5 rounded-xl transition cursor-pointer"
+                        >
+                          ล้างข้อมูลที่เลือก
+                        </button>
+                        <button
+                          onClick={handleConfirmImport}
+                          className="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-extrabold text-xs py-2.5 px-5 rounded-xl transition duration-150 flex items-center gap-1.5 shadow-md shadow-indigo-100 cursor-pointer"
+                        >
+                          <Check className="w-4 h-4" />
+                          ยืนยันนำเข้ารายการที่ถูกต้อง ({parsedImportRows.filter(r => r.isValid).length} แถว)
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Data Table */}
+                    <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50">
+                            <th className="py-3 px-4 w-[100px]">ตรวจสอบ</th>
+                            <th className="py-3 px-3">รหัสพนักงาน</th>
+                            <th className="py-3 px-3">พนักงาน</th>
+                            <th className="py-3 px-3">วันที่บันทึก</th>
+                            <th className="py-3 px-3">เวลา</th>
+                            <th className="py-3 px-3 w-[160px]">ประเภทเวลา (แก้ไขได้)</th>
+                            <th className="py-3 px-3 w-[120px]">ชั่วโมง OT</th>
+                            <th className="py-3 px-3">หมายเหตุ / บันทึกชี้แจง</th>
+                            <th className="py-3 px-4 text-center">ลบ</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                          {paginatedRows.map((row) => (
+                            <tr 
+                              key={row.tempId} 
+                              className={`hover:bg-slate-50/60 transition ${
+                                !row.isValid ? 'bg-rose-50/40 hover:bg-rose-50/60' : ''
+                              }`}
+                            >
+                              <td className="py-2.5 px-4">
+                                {row.isValid ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-full font-bold">
+                                    <Check className="w-3 h-3" /> ผ่านเกณฑ์
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[10px] bg-rose-50 text-rose-700 border border-rose-100 px-2 py-0.5 rounded-full font-bold" title={row.errorMsg}>
+                                    <AlertCircle className="w-3 h-3" /> ล้มเหลว
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <input
+                                  type="text"
+                                  value={row.employeeId}
+                                  onChange={(e) => {
+                                    const val = e.target.value.trim();
+                                    const matchedEmp = employees.find(emp => emp.employeeId.toUpperCase() === val.toUpperCase());
+                                    handleUpdateParsedRow(row.tempId, { 
+                                      employeeId: val,
+                                      employeeName: matchedEmp ? `${matchedEmp.firstName} ${matchedEmp.lastName}` : 'ไม่พบบัญชีพนักงานในฐานข้อมูล',
+                                      isValid: !!matchedEmp,
+                                      errorMsg: matchedEmp ? undefined : 'ไม่พบรหัสพนักงานในระบบ'
+                                    });
+                                  }}
+                                  className="bg-transparent border-b border-dashed border-slate-300 focus:border-indigo-500 focus:outline-none w-20 font-mono font-semibold py-0.5 text-slate-800"
+                                  placeholder="EMP-XXX"
+                                />
+                              </td>
+                              <td className="py-2.5 px-3 font-bold text-slate-800">
+                                {row.employeeName}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono">
+                                <div className="flex flex-col">
+                                  <input
+                                    type="date"
+                                    value={row.date}
+                                    onChange={(e) => handleUpdateParsedRow(row.tempId, { date: e.target.value })}
+                                    className="bg-transparent border-none focus:outline-none py-0.5 font-semibold text-slate-700 font-mono text-[11px] min-w-[125px]"
+                                  />
+                                  {row.date && (
+                                    <span className="text-[10px] text-indigo-600 font-bold mt-0.5 ml-1">
+                                      วัน{getDayOfWeekThai(row.date)}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-3 font-mono">
+                                <input
+                                  type="text"
+                                  value={row.time}
+                                  onChange={(e) => handleUpdateParsedRow(row.tempId, { time: e.target.value.trim() })}
+                                  className="bg-transparent border-none focus:outline-none py-0.5 font-bold text-slate-800 font-mono"
+                                />
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <select
+                                  value={row.type}
+                                  onChange={(e) => handleUpdateParsedRow(row.tempId, { type: e.target.value as AttendanceType })}
+                                  className="bg-white border border-slate-200 rounded-lg py-1 px-2 font-bold text-[11px] text-slate-700 cursor-pointer shadow-sm focus:outline-none"
+                                >
+                                  <option value="clock_in">เข้างานปกติ</option>
+                                  <option value="clock_out">ออกงานปกติ</option>
+                                  <option value="late">เข้าสาย</option>
+                                  <option value="overtime">ทำงานล่วงเวลา (OT)</option>
+                                </select>
+                              </td>
+                              <td className="py-2.5 px-3">
+                                {row.type === 'overtime' ? (
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      type="number"
+                                      min="0.5"
+                                      max="12"
+                                      step="0.5"
+                                      value={row.otHours || 1}
+                                      onChange={(e) => handleUpdateParsedRow(row.tempId, { otHours: parseFloat(e.target.value) || 1 })}
+                                      className="w-12 bg-white border border-slate-200 rounded px-1.5 py-0.5 font-bold font-mono text-center text-slate-700"
+                                    />
+                                    <span className="text-[10px] text-slate-400">ชม.</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-350">-</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <input
+                                  type="text"
+                                  value={row.notes || ''}
+                                  onChange={(e) => handleUpdateParsedRow(row.tempId, { notes: e.target.value })}
+                                  className="bg-transparent hover:bg-slate-50 focus:bg-white border-b border-dashed border-slate-200 focus:border-indigo-400 focus:outline-none w-full py-0.5 text-xs text-slate-600 placeholder-slate-350"
+                                  placeholder="โน้ตเพิ่มเติม..."
+                                />
+                              </td>
+                              <td className="py-2.5 px-4 text-center">
+                                <button
+                                  onClick={() => handleRemoveParsedRow(row.tempId)}
+                                  className="text-slate-400 hover:text-rose-500 transition cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Pagination Controls for Excel Preview */}
+                    {filteredRows.length > 0 && importTotalPages > 1 && (
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-5 border-t border-slate-150 mt-5 bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+                        <div className="text-xs text-slate-500 font-semibold">
+                          แสดง <span className="text-slate-800 font-bold">{Math.min(filteredRows.length, (activeImportPage - 1) * importItemsPerPage + 1)}</span> ถึง{' '}
+                          <span className="text-slate-800 font-bold">{Math.min(filteredRows.length, activeImportPage * importItemsPerPage)}</span> จากทั้งหมด{' '}
+                          <span className="text-indigo-600 font-extrabold">{filteredRows.length}</span> รายการ
+                        </div>
+                        <div className="flex items-center gap-1.5">
                           <button
-                            onClick={() => handleRemoveParsedRow(row.tempId)}
-                            className="text-slate-400 hover:text-rose-500 transition cursor-pointer"
+                            type="button"
+                            onClick={() => setImportCurrentPage(prev => Math.max(1, prev - 1))}
+                            disabled={activeImportPage === 1}
+                            className="p-1.5 rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition cursor-pointer"
+                            title="หน้าก่อนหน้า"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <ChevronLeft className="w-4 h-4" />
                           </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                          
+                          {Array.from({ length: importTotalPages }, (_, idx) => {
+                            const pageNum = idx + 1;
+                            const isCurrent = pageNum === activeImportPage;
+                            
+                            if (importTotalPages > 6) {
+                              if (pageNum !== 1 && pageNum !== importTotalPages && Math.abs(pageNum - activeImportPage) > 1) {
+                                if (pageNum === 2 && activeImportPage > 3) {
+                                  return (
+                                    <span key="import-left-dots" className="px-1.5 text-slate-400 text-xs font-bold">
+                                      ...
+                                    </span>
+                                  );
+                                }
+                                if (pageNum === importTotalPages - 1 && activeImportPage < importTotalPages - 2) {
+                                  return (
+                                    <span key="import-right-dots" className="px-1.5 text-slate-400 text-xs font-bold">
+                                      ...
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              }
+                            }
+
+                            return (
+                              <button
+                                key={pageNum}
+                                type="button"
+                                onClick={() => setImportCurrentPage(pageNum)}
+                                className={`min-w-[32px] h-8 text-xs font-bold rounded-xl flex items-center justify-center border transition-all cursor-pointer ${
+                                  isCurrent 
+                                    ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm shadow-indigo-100' 
+                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-800'
+                                }`}
+                              >
+                                {pageNum}
+                              </button>
+                            );
+                          })}
+
+                          <button
+                            type="button"
+                            onClick={() => setImportCurrentPage(prev => Math.min(importTotalPages, prev + 1))}
+                            disabled={activeImportPage === importTotalPages}
+                            className="p-1.5 rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition cursor-pointer"
+                            title="หน้าถัดไป"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
 
@@ -1643,7 +2008,7 @@ export default function AttendanceSection({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                {filteredRecords.map((rec) => {
+                {paginatedRecords.map((rec) => {
                   return (
                     <tr key={rec.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="py-3 px-5 font-mono font-semibold text-slate-600">
@@ -1701,6 +2066,80 @@ export default function AttendanceSection({
             </table>
           )}
         </div>
+
+        {/* Elegant Pagination controls */}
+        {filteredRecords.length > 0 && totalPages > 1 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-5 border-t border-slate-150 mt-5">
+            <div className="text-xs text-slate-500 font-semibold">
+              แสดง <span className="text-slate-800 font-bold">{Math.min(filteredRecords.length, (currentPage - 1) * itemsPerPage + 1)}</span> ถึง{' '}
+              <span className="text-slate-800 font-bold">{Math.min(filteredRecords.length, currentPage * itemsPerPage)}</span> จากทั้งหมด{' '}
+              <span className="text-blue-600 font-extrabold">{filteredRecords.length}</span> รายการ
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="p-1.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition cursor-pointer"
+                title="หน้าก่อนหน้า"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              
+              {/* Generate page numbers list with ellipsis if needed */}
+              {Array.from({ length: totalPages }, (_, idx) => {
+                const pageNum = idx + 1;
+                const isCurrent = pageNum === currentPage;
+                
+                // Only show page 1, totalPages, and page numbers around currentPage
+                if (totalPages > 6) {
+                  if (pageNum !== 1 && pageNum !== totalPages && Math.abs(pageNum - currentPage) > 1) {
+                    if (pageNum === 2 && currentPage > 3) {
+                      return (
+                        <span key="left-dots" className="px-1.5 text-slate-400 text-xs font-bold">
+                          ...
+                        </span>
+                      );
+                    }
+                    if (pageNum === totalPages - 1 && currentPage < totalPages - 2) {
+                      return (
+                        <span key="right-dots" className="px-1.5 text-slate-400 text-xs font-bold">
+                          ...
+                        </span>
+                      );
+                    }
+                    return null;
+                  }
+                }
+
+                return (
+                  <button
+                    key={pageNum}
+                    type="button"
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`min-w-[32px] h-8 text-xs font-bold rounded-xl flex items-center justify-center border transition-all cursor-pointer ${
+                      isCurrent 
+                        ? 'bg-blue-600 border-blue-600 text-white shadow-sm shadow-blue-100' 
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-800'
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                className="p-1.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition cursor-pointer"
+                title="หน้าถัดไป"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
       </div>
 

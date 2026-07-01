@@ -121,6 +121,16 @@ export default function App() {
     saveStoredData({ employees: nextList });
   };
 
+  const handleAddEmployeeBatch = (newEmps: Omit<Employee, 'id'>[]) => {
+    const formattedEmps: Employee[] = newEmps.map((emp, idx) => ({
+      ...emp,
+      id: `emp-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 4)}`
+    }));
+    const nextList = [...formattedEmps, ...employees];
+    setEmployees(nextList);
+    saveStoredData({ employees: nextList });
+  };
+
   const handleEditEmployee = (editedEmp: Employee) => {
     const nextList = employees.map(e => e.id === editedEmp.id ? editedEmp : e);
     setEmployees(nextList);
@@ -778,6 +788,7 @@ export default function App() {
                   onDeleteAttendance={handleDeleteAttendance}
                   currentUser={currentUser}
                   settings={settings}
+                  onAddEmployeeBatch={handleAddEmployeeBatch}
                 />
               )}
 
