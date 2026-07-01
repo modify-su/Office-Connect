@@ -48,6 +48,24 @@ interface ParsedAttendanceItem {
   errorMsg?: string;
 }
 
+// Helper to get Thai Day of Week without timezone shifts
+export const getDayOfWeekThai = (dateString: string): string => {
+  if (!dateString) return '';
+  try {
+    const parts = dateString.split('-');
+    if (parts.length !== 3) return '';
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1; // 0-indexed
+    const day = parseInt(parts[2], 10);
+    const date = new Date(year, month, day);
+    if (isNaN(date.getTime())) return '';
+    const days = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+    return days[date.getDay()];
+  } catch (e) {
+    return '';
+  }
+};
+
 export default function AttendanceSection({
   attendanceRecords,
   employees,
@@ -220,30 +238,42 @@ export default function AttendanceSection({
         }
         
         // Map excel data structure dynamically
-        const parsedItems: ParsedAttendanceItem[] = jsonRows.map((row, index) => {
+        const parsedItems: ParsedAttendanceItem[] = [];
+        
+        jsonRows.forEach((row, rowIndex) => {
           let employeeId = '';
+          let employeeNameVal = '';
           let dateStr = '';
-          let timeStr = '';
-          let typeVal = '';
+          let clockInTimeStr = '';
+          let clockOutTimeStr = '';
           let otHrs = 0;
           let notesVal = '';
+          
+          let singleTimeStr = '';
+          let typeVal = '';
           
           Object.entries(row).forEach(([key, val]) => {
             const normalizedKey = key.trim().toLowerCase();
             const stringVal = String(val).trim();
             
-            if (normalizedKey.includes('รหัส') || normalizedKey.includes('id') || normalizedKey.includes('emp')) {
+            if (normalizedKey === 'รหัสพนักงาน' || normalizedKey.includes('รหัส') || normalizedKey.includes('id') || normalizedKey.includes('emp')) {
               employeeId = stringVal;
+            } else if (normalizedKey === 'ชื่อพนักงาน' || normalizedKey.includes('ชื่อ') || normalizedKey.includes('name') || normalizedKey.includes('employee')) {
+              employeeNameVal = stringVal;
             } else if (normalizedKey.includes('วัน') || normalizedKey.includes('date')) {
               dateStr = stringVal;
+            } else if (normalizedKey.includes('เวลาเข้า') || normalizedKey.includes('clock_in') || normalizedKey.includes('clockin') || normalizedKey.includes('time_in') || normalizedKey.includes('timein') || (normalizedKey.includes('เข้า') && normalizedKey.includes('เวลา'))) {
+              clockInTimeStr = stringVal;
+            } else if (normalizedKey.includes('เวลาออก') || normalizedKey.includes('clock_out') || normalizedKey.includes('clockout') || normalizedKey.includes('time_out') || normalizedKey.includes('timeout') || (normalizedKey.includes('ออก') && normalizedKey.includes('เวลา')) || normalizedKey.includes('เลิกงาน')) {
+              clockOutTimeStr = stringVal;
+            } else if (normalizedKey.includes('ot') || normalizedKey.includes('ชั่วโมง') || normalizedKey.includes('ล่วงเวลา') || normalizedKey.includes('overtime')) {
+              otHrs = parseFloat(stringVal) || 0;
+            } else if (normalizedKey.includes('หมายเหตุ') || normalizedKey.includes('note') || normalizedKey.includes('บันทึก')) {
+              notesVal = stringVal;
             } else if (normalizedKey.includes('เวลา') || normalizedKey.includes('time')) {
-              timeStr = stringVal;
+              singleTimeStr = stringVal;
             } else if (normalizedKey.includes('ประเภท') || normalizedKey.includes('type')) {
               typeVal = stringVal;
-            } else if (normalizedKey.includes('ot') || normalizedKey.includes('ชั่วโมง') || normalizedKey.includes('ล่วงเวลา')) {
-              otHrs = parseFloat(stringVal) || 0;
-            } else if (normalizedKey.includes('หมายเหตุ') || normalizedKey.includes('note')) {
-              notesVal = stringVal;
             }
           });
           
@@ -272,89 +302,133 @@ export default function AttendanceSection({
             dateStr = new Date().toISOString().split('T')[0];
           }
           
-          // 2. Process Time
-          if (!timeStr) {
-            timeStr = '08:00:00';
-          } else {
+          // Helper to parse/clean time strings
+          const parseTimeStr = (tStr: string, defaultTime: string): string => {
+            if (!tStr) return defaultTime;
             // Excel fractional day representation (e.g., 0.3541 -> 08:30:00)
-            if (/^0\.\d+$/.test(timeStr)) {
-              const decimalTime = parseFloat(timeStr) * 24;
+            if (/^0\.\d+$/.test(tStr)) {
+              const decimalTime = parseFloat(tStr) * 24;
               const hours = Math.floor(decimalTime);
               const minutes = Math.floor((decimalTime - hours) * 60);
               const seconds = Math.floor(((decimalTime - hours) * 60 - minutes) * 60);
-              timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+              return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
             } else {
               // Format HH:MM or HH:MM:SS
-              const parts = timeStr.split(':');
+              const parts = tStr.split(':');
               if (parts.length === 2) {
-                timeStr = `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:00`;
+                return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:00`;
               } else if (parts.length === 3) {
-                timeStr = `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:${parts[2].padStart(2, '0')}`;
+                return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:${parts[2].padStart(2, '0')}`;
               }
+              return defaultTime;
             }
+          };
+
+          // 2. Match Employee ID or Name (case-insensitive)
+          let emp = employees.find(e => employeeId && e.employeeId.toUpperCase() === employeeId.toUpperCase());
+          
+          if (!emp && employeeNameVal) {
+            // Try matching by first and last name combinations
+            const cleanNameVal = employeeNameVal.replace(/\s+/g, '').toLowerCase();
+            emp = employees.find(e => {
+              const fullName1 = (e.firstName + e.lastName).replace(/\s+/g, '').toLowerCase();
+              const fullName2 = (e.firstName + ' ' + e.lastName).replace(/\s+/g, '').toLowerCase();
+              return cleanNameVal === fullName1 || 
+                     cleanNameVal === fullName2 || 
+                     cleanNameVal.includes(e.firstName.toLowerCase()) ||
+                     e.firstName.toLowerCase().includes(cleanNameVal);
+            });
           }
 
-          // 3. Match Employee ID (case-insensitive)
-          const emp = employees.find(e => e.employeeId.toUpperCase() === employeeId.toUpperCase());
-          let empName = 'ไม่พบบัญชีพนักงานในระบบ';
+          let empName = employeeNameVal || 'ไม่พบบัญชีพนักงานในระบบ';
           let isValid = !!emp;
-          let errorMsg = emp ? undefined : 'ไม่พบรหัสพนักงานในฐานข้อมูล';
+          let errorMsg = emp ? undefined : 'ไม่พบรหัสหรือชื่อพนักงานในฐานข้อมูล';
           
           if (emp) {
             empName = `${emp.firstName} ${emp.lastName}`;
-          }
-          
-          if (!employeeId) {
-            isValid = false;
-            errorMsg = 'รหัสพนักงานว่างเปล่า';
-          }
-          
-          // 4. Automatic Attendance Type Evaluation & Rules Processing
-          let type: AttendanceType = 'clock_in';
-          const normalizedTypeVal = typeVal.toLowerCase();
-          
-          if (normalizedTypeVal.includes('clock_in') || normalizedTypeVal.includes('เข้างานปกติ') || normalizedTypeVal.includes('เข้างาน')) {
-            type = 'clock_in';
-          } else if (normalizedTypeVal.includes('clock_out') || normalizedTypeVal.includes('ออกงานปกติ') || normalizedTypeVal.includes('ออกงาน') || normalizedTypeVal.includes('เลิกงาน')) {
-            type = 'clock_out';
-          } else if (normalizedTypeVal.includes('late') || normalizedTypeVal.includes('เข้าสาย') || normalizedTypeVal.includes('สาย')) {
-            type = 'late';
-          } else if (normalizedTypeVal.includes('overtime') || normalizedTypeVal.includes('ot') || normalizedTypeVal.includes('ล่วงเวลา') || otHrs > 0) {
-            type = 'overtime';
-          } else {
-            // AUTO EVALUATE LATENESS!
-            // Compare parsed record time with company rules start time (e.g. 08:30)
-            const [startHour, startMin] = settings.workHoursStart.split(':').map(Number);
-            const [itemHour, itemMin] = timeStr.split(':').map(Number);
-            
-            if (itemHour < 12) {
-              // Morning session
-              if (itemHour > startHour || (itemHour === startHour && itemMin > startMin)) {
-                type = 'late'; // Late because time > company policy
-              } else {
-                type = 'clock_in';
-              }
-            } else if (itemHour >= 17) {
-              // Late afternoon / evening session
-              type = 'clock_out';
-            } else {
-              // Mid-day
-              type = 'clock_out';
+            if (!employeeId) {
+              employeeId = emp.employeeId;
             }
           }
+          
+          if (!employeeId && !emp) {
+            isValid = false;
+            errorMsg = 'ไม่ระบุรหัสหรือชื่อพนักงาน';
+          }
 
-          return {
-            tempId: 'temp-' + index + '-' + Date.now(),
-            employeeId: emp ? emp.employeeId : employeeId,
-            employeeName: empName,
-            date: dateStr,
-            time: timeStr,
-            type,
-            otHours: type === 'overtime' ? (otHrs || 1) : undefined,
-            notes: notesVal || undefined,
-            isValid,
-            errorMsg
+          const finalEmpId = emp ? emp.employeeId : employeeId;
+
+          // Helper to build a record item
+          const createRecordItem = (time: string, type: AttendanceType, otHours?: number, extraNote?: string): ParsedAttendanceItem => {
+            return {
+              tempId: 'temp-' + rowIndex + '-' + type + '-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+              employeeId: finalEmpId,
+              employeeName: empName,
+              date: dateStr,
+              time,
+              type,
+              otHours,
+              notes: extraNote || notesVal || undefined,
+              isValid,
+              errorMsg
+            };
           };
+
+          // Generate records based on available column configurations
+          if (clockInTimeStr || clockOutTimeStr) {
+            // New multi-column format (separate Clock In and Clock Out columns)
+            if (clockInTimeStr && clockInTimeStr !== '-') {
+              const parsedInTime = parseTimeStr(clockInTimeStr, '08:00:00');
+              const [startHour, startMin] = settings.workHoursStart.split(':').map(Number);
+              const [itemHour, itemMin] = parsedInTime.split(':').map(Number);
+              let type: AttendanceType = 'clock_in';
+              if (itemHour > startHour || (itemHour === startHour && itemMin > startMin)) {
+                type = 'late';
+              }
+              parsedItems.push(createRecordItem(parsedInTime, type));
+            }
+            
+            if (clockOutTimeStr && clockOutTimeStr !== '-') {
+              const parsedOutTime = parseTimeStr(clockOutTimeStr, '17:00:00');
+              parsedItems.push(createRecordItem(parsedOutTime, 'clock_out'));
+            }
+            
+            if (otHrs > 0) {
+              const otTime = clockOutTimeStr && clockOutTimeStr !== '-' ? parseTimeStr(clockOutTimeStr, '17:30:00') : '18:00:00';
+              parsedItems.push(createRecordItem(otTime, 'overtime', otHrs, `ชั่วโมงทำงานล่วงเวลา (OT): ${otHrs} ชม.`));
+            }
+          } else if (singleTimeStr) {
+            // Backward-compatible single-column format
+            const parsedTime = parseTimeStr(singleTimeStr, '08:00:00');
+            let type: AttendanceType = 'clock_in';
+            const normalizedTypeVal = typeVal.toLowerCase();
+            
+            if (normalizedTypeVal.includes('clock_in') || normalizedTypeVal.includes('เข้างานปกติ') || normalizedTypeVal.includes('เข้างาน')) {
+              type = 'clock_in';
+            } else if (normalizedTypeVal.includes('clock_out') || normalizedTypeVal.includes('ออกงานปกติ') || normalizedTypeVal.includes('ออกงาน') || normalizedTypeVal.includes('เลิกงาน')) {
+              type = 'clock_out';
+            } else if (normalizedTypeVal.includes('late') || normalizedTypeVal.includes('เข้าสาย') || normalizedTypeVal.includes('สาย')) {
+              type = 'late';
+            } else if (normalizedTypeVal.includes('overtime') || normalizedTypeVal.includes('ot') || normalizedTypeVal.includes('ล่วงเวลา') || otHrs > 0) {
+              type = 'overtime';
+            } else {
+              const [startHour, startMin] = settings.workHoursStart.split(':').map(Number);
+              const [itemHour, itemMin] = parsedTime.split(':').map(Number);
+              
+              if (itemHour < 12) {
+                if (itemHour > startHour || (itemHour === startHour && itemMin > startMin)) {
+                  type = 'late';
+                } else {
+                  type = 'clock_in';
+                }
+              } else if (itemHour >= 17) {
+                type = 'clock_out';
+              } else {
+                type = 'clock_out';
+              }
+            }
+            parsedItems.push(createRecordItem(parsedTime, type, type === 'overtime' ? (otHrs || 1) : undefined));
+          }
         });
         
         setParsedImportRows(parsedItems);
@@ -457,35 +531,23 @@ export default function AttendanceSection({
     const templateData = [
       {
         "รหัสพนักงาน (Employee ID)*": "EMP-001",
+        "ชื่อพนักงาน (Employee Name)": "สมชาย ใจดี",
+        "วัน (Day)": "อังคาร",
         "วันที่ (Date YYYY-MM-DD)*": "2026-06-30",
-        "เวลาบันทึก (Time HH:MM:SS)*": "08:15:00",
-        "ประเภทลงเวลา (Type: clock_in/clock_out/late/overtime)": "clock_in",
-        "ชั่วโมง OT (OT Hours - สำหรับ OT เท่านั้น)": "",
-        "หมายเหตุ (Notes)": "บันทึกเวลาปกติ"
-      },
-      {
-        "รหัสพนักงาน (Employee ID)*": "EMP-001",
-        "วันที่ (Date YYYY-MM-DD)*": "2026-06-30",
-        "เวลาบันทึก (Time HH:MM:SS)*": "17:35:00",
-        "ประเภทลงเวลา (Type: clock_in/clock_out/late/overtime)": "clock_out",
-        "ชั่วโมง OT (OT Hours - สำหรับ OT เท่านั้น)": "",
-        "หมายเหตุ (Notes)": ""
-      },
-      {
-        "รหัสพนักงาน (Employee ID)*": "EMP-001",
-        "วันที่ (Date YYYY-MM-DD)*": "2026-06-30",
-        "เวลาบันทึก (Time HH:MM:SS)*": "19:30:00",
-        "ประเภทลงเวลา (Type: clock_in/clock_out/late/overtime)": "overtime",
-        "ชั่วโมง OT (OT Hours - สำหรับ OT เท่านั้น)": "2.5",
-        "หมายเหตุ (Notes)": "ทำงานโปรเจกต์ด่วน"
+        "เวลาเข้างาน (Clock In Time)": "08:15:00",
+        "เวลาออกงาน (Clock Out Time)": "17:35:00",
+        "ชั่วโมง OT (OT Hours)": "2",
+        "หมายเหตุ / บันทึก (Notes)": "ปกติ ทำงานล่วงเวลาโครงการเร่งด่วน"
       },
       {
         "รหัสพนักงาน (Employee ID)*": "EMP-002",
+        "ชื่อพนักงาน (Employee Name)": "สมศรี รักษ์ดี",
+        "วัน (Day)": "อังคาร",
         "วันที่ (Date YYYY-MM-DD)*": "2026-06-30",
-        "เวลาบันทึก (Time HH:MM:SS)*": "08:45:00",
-        "ประเภทลงเวลา (Type: clock_in/clock_out/late/overtime)": "late",
-        "ชั่วโมง OT (OT Hours - สำหรับ OT เท่านั้น)": "",
-        "หมายเหตุ (Notes)": "เดินทางรถไฟฟ้าขัดข้อง"
+        "เวลาเข้างาน (Clock In Time)": "08:45:00",
+        "เวลาออกงาน (Clock Out Time)": "17:30:00",
+        "ชั่วโมง OT (OT Hours)": "",
+        "หมายเหตุ / บันทึก (Notes)": "เข้าสายเนื่องจากระบบรถไฟฟ้าขัดข้อง"
       }
     ];
 
@@ -494,14 +556,15 @@ export default function AttendanceSection({
     XLSX.utils.book_append_sheet(wb, ws, "Attendance Template");
     
     // Auto-fit column widths
-    const max_len = 35;
     ws['!cols'] = [
-      { wch: 25 },
-      { wch: 22 },
-      { wch: 22 },
-      { wch: 35 },
-      { wch: 25 },
-      { wch: 25 }
+      { wch: 25 }, // Employee ID
+      { wch: 25 }, // Employee Name
+      { wch: 15 }, // Day
+      { wch: 22 }, // Date
+      { wch: 25 }, // Clock In Time
+      { wch: 25 }, // Clock Out Time
+      { wch: 20 }, // OT Hours
+      { wch: 40 }  // Notes
     ];
 
     XLSX.writeFile(wb, "template_attendance_import.xlsx");
@@ -571,14 +634,15 @@ export default function AttendanceSection({
   const handleExportCSV = () => {
     let csvContent = "\uFEFF"; // UTF-8 BOM
     // Header
-    csvContent += "วันที่,เวลา บันทึก,รหัสพนักงาน,ชื่อ-นามสกุล,ประเภทการบันทึก,ชั่วโมง OT,บันทึกข้อความ,ผู้บันทึก\n";
+    csvContent += "วันที่,วัน,เวลา บันทึก,รหัสพนักงาน,ชื่อ-นามสกุล,ประเภทการบันทึก,ชั่วโมง OT,บันทึกข้อความ,ผู้บันทึก\n";
     
     // Rows
     filteredRecords.forEach(rec => {
       const notes = rec.notes ? rec.notes.replace(/"/g, '""') : '';
       const ot = rec.otHours ? rec.otHours.toString() : '-';
       const typeThai = getAttendanceTypeLabel(rec.type);
-      csvContent += `"${rec.date}","${rec.time}","${rec.employeeId}","${rec.employeeName}","${typeThai}","${ot}","${notes}","${rec.recordedBy}"\n`;
+      const dayName = getDayOfWeekThai(rec.date);
+      csvContent += `"${rec.date}","วัน${dayName}","${rec.time}","${rec.employeeId}","${rec.employeeName}","${typeThai}","${ot}","${notes}","${rec.recordedBy}"\n`;
     });
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -595,13 +659,14 @@ export default function AttendanceSection({
   const handleExportExcel = () => {
     let excelContent = "\uFEFF"; // BOM
     // Standard Tab-separated XLS content
-    excelContent += "วันที่\tเวลาบันทึก\tรหัสพนักงาน\tชื่อ-นามสกุล\tประเภทบันทึกเวลา\tชั่วโมง OT\tหมายเหตุ\tผู้ลงบันทึก\n";
+    excelContent += "วันที่\tวัน\tเวลาบันทึก\tรหัสพนักงาน\tชื่อ-นามสกุล\tประเภทบันทึกเวลา\tชั่วโมง OT\tหมายเหตุ\tผู้ลงบันทึก\n";
     
     filteredRecords.forEach(rec => {
       const notes = rec.notes || '-';
       const ot = rec.otHours ? rec.otHours.toString() : '-';
       const typeThai = getAttendanceTypeLabel(rec.type);
-      excelContent += `${rec.date}\t${rec.time}\t${rec.employeeId}\t${rec.employeeName}\t${typeThai}\t${ot}\t${notes}\t${rec.recordedBy}\n`;
+      const dayName = getDayOfWeekThai(rec.date);
+      excelContent += `${rec.date}\tวัน${dayName}\t${rec.time}\t${rec.employeeId}\t${rec.employeeName}\t${typeThai}\t${ot}\t${notes}\t${rec.recordedBy}\n`;
     });
 
     const blob = new Blob([excelContent], { type: 'application/vnd.ms-excel;charset=utf-8;' });
@@ -1349,12 +1414,19 @@ export default function AttendanceSection({
                           {row.employeeName}
                         </td>
                         <td className="py-2.5 px-3 font-mono">
-                          <input
-                            type="date"
-                            value={row.date}
-                            onChange={(e) => handleUpdateParsedRow(row.tempId, { date: e.target.value })}
-                            className="bg-transparent border-none focus:outline-none py-0.5 font-semibold text-slate-700 font-mono text-[11px]"
-                          />
+                          <div className="flex flex-col">
+                            <input
+                              type="date"
+                              value={row.date}
+                              onChange={(e) => handleUpdateParsedRow(row.tempId, { date: e.target.value })}
+                              className="bg-transparent border-none focus:outline-none py-0.5 font-semibold text-slate-700 font-mono text-[11px] min-w-[125px]"
+                            />
+                            {row.date && (
+                              <span className="text-[10px] text-indigo-600 font-bold mt-0.5 ml-1">
+                                วัน{getDayOfWeekThai(row.date)}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-2.5 px-3 font-mono">
                           <input
@@ -1575,7 +1647,14 @@ export default function AttendanceSection({
                   return (
                     <tr key={rec.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="py-3 px-5 font-mono font-semibold text-slate-600">
-                        {rec.date}
+                        <div className="flex items-center gap-1.5">
+                          <span>{rec.date}</span>
+                          {rec.date && (
+                            <span className="text-[10px] font-sans font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-100/60 px-1.5 py-0.5 rounded">
+                              วัน{getDayOfWeekThai(rec.date)}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-4 font-mono font-bold text-slate-800">
                         {rec.time}
