@@ -1,0 +1,25 @@
+{
+  "name": "ระบบจัดการออฟฟิศ - Office HQ OS",
+  "short_name": "Office HQ OS",
+  "description": "ระบบบริหารจัดการข้อมูลพนักงาน วันลา พัสดุและเวลาทำงานแบบเรียลไทม์ พร้อมการซิงก์ข้อมูลบนคลาวด์",
+  "start_url": "/",
+  "id": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0284c7",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

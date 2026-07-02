@@ -9,6 +9,8 @@ import {
   Menu, 
   X, 
   CircleDot,
+  CheckCircle2,
+  RefreshCw,
   Bell,
   Clock,
   LogOut,
@@ -18,11 +20,36 @@ import {
   Database,
   AlertTriangle,
   Archive,
-  FolderClosed
+  FolderClosed,
+  Download,
+  Smartphone,
+  Share2
 } from 'lucide-react';
 
 import { Employee, LeaveRequest, SupplyItem, SupplyRequest, SystemSettings, UserAccount, ArchiveRecord, AttendanceRecord } from './types';
 import { getStoredData, saveStoredData, initialEmployees, initialLeaveRequests, initialSupplyItems, initialSupplyRequests, defaultSettings, initialAttendanceRecords } from './data';
+import { collection, onSnapshot, doc } from 'firebase/firestore';
+import { db } from './firebase';
+import { 
+  seedFirestoreIfEmpty,
+  saveEmployeeCloud,
+  deleteEmployeeCloud,
+  saveLeaveRequestCloud,
+  deleteLeaveRequestCloud,
+  saveSupplyItemCloud,
+  deleteSupplyItemCloud,
+  saveSupplyRequestCloud,
+  deleteSupplyRequestCloud,
+  saveSettingsCloud,
+  saveAccountCloud,
+  deleteAccountCloud,
+  saveArchiveCloud,
+  deleteArchiveCloud,
+  saveAttendanceRecordCloud,
+  deleteAttendanceRecordCloud,
+  clearAllAttendanceCloud,
+  resetAllCloudStateCloud
+} from './lib/dbSync';
 
 // Import sections
 import Dashboard from './components/Dashboard';
@@ -72,6 +99,73 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  // Progressive Web App (PWA) States & Handlers
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+  const [showInstallBanner, setShowInstallBanner] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('hide_pwa_banner') !== 'true';
+    }
+    return true;
+  });
+  const [showIOSInstruction, setShowIOSInstruction] = useState(false);
+  const [isStandaloneApp, setIsStandaloneApp] = useState(false);
+
+  React.useEffect(() => {
+    // 1. Listen for standard browser installation prompt invitation (Chrome/Android/Edge)
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+      console.log('PWA: beforeinstallprompt triggered and captured.');
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    // 2. Detect if app is currently running in standalone (installed) display mode
+    const checkStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+                           (window.navigator as any).standalone === true;
+    setIsStandaloneApp(checkStandalone);
+
+    // 3. Listen to appinstalled event to provide successful feedback
+    const handleAppInstalled = () => {
+      setIsStandaloneApp(true);
+      setIsInstallable(false);
+      setDeferredPrompt(null);
+      triggerToast('ติดตั้งแอป Office HQ OS บนอุปกรณ์ของคุณเสร็จสมบูรณ์!');
+    };
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const handleTriggerInstall = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setIsInstallable(false);
+        setDeferredPrompt(null);
+      }
+    } else {
+      // If no browser prompt exists (e.g. on iOS or manual), check if iOS Safari
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+      if (isIOS) {
+        setShowIOSInstruction(true);
+      } else {
+        triggerToast('ระบบตรวจไม่พบตัวติดตั้งเบราว์เซอร์ (คุณอาจติดตั้งแอปนี้ไว้แล้ว หรือจำเป็นต้องเปิดผ่านเบราว์เซอร์ Chrome/Safari)', 'sync');
+      }
+    }
+  };
+
+  const handleDismissBanner = () => {
+    setShowInstallBanner(false);
+    localStorage.setItem('hide_pwa_banner', 'true');
+  };
+
   // Deep-link triggers
   const [openEmployeeAdd, setOpenEmployeeAdd] = useState(false);
   const [openLeaveAdd, setOpenLeaveAdd] = useState(false);
@@ -79,6 +173,165 @@ export default function App() {
 
   // UTC or Local Date configuration
   const formattedDateString = "วันอังคารที่ 23 มิถุนายน พ.ศ. 2569";
+
+  // Real-time synchronization & feedback toast state
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastType, setToastType] = useState<'success' | 'sync'>('success');
+  
+  const triggerToast = (msg: string, type: 'success' | 'sync' = 'success') => {
+    setToastMessage(msg);
+    setToastType(type);
+  };
+
+  React.useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => {
+        setToastMessage(null);
+      }, 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
+
+  // 1. Seed Firestore if it is empty (ensures basic demo accounts and settings always exist on cloud)
+  React.useEffect(() => {
+    seedFirestoreIfEmpty();
+  }, []);
+
+  // 2. Real-time Firebase Firestore Sync Listeners
+  const [isCloudSyncing, setIsCloudSyncing] = useState(true);
+
+  React.useEffect(() => {
+    setIsCloudSyncing(true);
+
+    // Sync Employees
+    const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
+      const list: Employee[] = [];
+      snapshot.forEach(doc => {
+        list.push(doc.data() as Employee);
+      });
+      if (list.length > 0) {
+        setEmployees(list);
+        saveStoredData({ employees: list });
+      }
+    });
+
+    // Sync Leave Requests
+    const unsubLeaves = onSnapshot(collection(db, 'leaveRequests'), (snapshot) => {
+      const list: LeaveRequest[] = [];
+      snapshot.forEach(doc => {
+        list.push(doc.data() as LeaveRequest);
+      });
+      // Sort by creation date descending
+      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setLeaveRequests(list);
+      saveStoredData({ leaveRequests: list });
+    });
+
+    // Sync Supply Items
+    const unsubSupplies = onSnapshot(collection(db, 'supplyItems'), (snapshot) => {
+      const list: SupplyItem[] = [];
+      snapshot.forEach(doc => {
+        list.push(doc.data() as SupplyItem);
+      });
+      list.sort((a, b) => a.code.localeCompare(b.code));
+      setSupplyItems(list);
+      saveStoredData({ supplyItems: list });
+    });
+
+    // Sync Supply Requests
+    const unsubSupplyReqs = onSnapshot(collection(db, 'supplyRequests'), (snapshot) => {
+      const list: SupplyRequest[] = [];
+      snapshot.forEach(doc => {
+        list.push(doc.data() as SupplyRequest);
+      });
+      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setSupplyRequests(list);
+      saveStoredData({ supplyRequests: list });
+    });
+
+    // Sync User Accounts
+    const unsubAccounts = onSnapshot(collection(db, 'accounts'), (snapshot) => {
+      const list: UserAccount[] = [];
+      snapshot.forEach(doc => {
+        list.push(doc.data() as UserAccount);
+      });
+      if (list.length > 0) {
+        setAccounts(list);
+        saveStoredData({ accounts: list });
+      }
+    });
+
+    // Sync Settings
+    const unsubSettings = onSnapshot(doc(db, 'settings', 'system'), (docSnap) => {
+      if (docSnap.exists()) {
+        const val = docSnap.data() as SystemSettings;
+        setSettings(val);
+        saveStoredData({ settings: val });
+      }
+    });
+
+    // Sync Archives
+    const unsubArchives = onSnapshot(collection(db, 'archives'), (snapshot) => {
+      const list: ArchiveRecord[] = [];
+      snapshot.forEach(doc => {
+        list.push(doc.data() as ArchiveRecord);
+      });
+      list.sort((a, b) => new Date(b.archivedAt).getTime() - new Date(a.archivedAt).getTime());
+      setArchives(list);
+      saveStoredData({ archives: list });
+    });
+
+    // Sync Attendance Records
+    const unsubAttendance = onSnapshot(collection(db, 'attendanceRecords'), (snapshot) => {
+      const list: AttendanceRecord[] = [];
+      snapshot.forEach(doc => {
+        list.push(doc.data() as AttendanceRecord);
+      });
+      list.sort((a, b) => {
+        const dateTimeA = new Date(`${a.date}T${a.time}`).getTime();
+        const dateTimeB = new Date(`${b.date}T${b.time}`).getTime();
+        return dateTimeB - dateTimeA;
+      });
+      setAttendanceRecords(list);
+      saveStoredData({ attendanceRecords: list });
+      setIsCloudSyncing(false);
+    });
+
+    return () => {
+      unsubEmployees();
+      unsubLeaves();
+      unsubSupplies();
+      unsubSupplyReqs();
+      unsubAccounts();
+      unsubSettings();
+      unsubArchives();
+      unsubAttendance();
+    };
+  }, []);
+
+  // Sync cross-tab session only
+  React.useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'office_session') {
+        const storedSession = localStorage.getItem('office_session');
+        if (storedSession) {
+          try {
+            setCurrentUser(JSON.parse(storedSession));
+          } catch (err) {
+            console.warn(err);
+          }
+        } else {
+          setCurrentUser(null);
+        }
+        triggerToast('ประสานข้อมูลความเปลี่ยนแปลงในระบบแบบเรียลไทม์ (Cross-tab Synced)', 'sync');
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
 
   // Custom confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -119,6 +372,8 @@ export default function App() {
     const nextList = [newEmp, ...employees];
     setEmployees(nextList);
     saveStoredData({ employees: nextList });
+    saveEmployeeCloud(newEmp);
+    triggerToast(`เพิ่มพนักงานใหม่ "${newEmp.firstName} ${newEmp.lastName}" สำเร็จและบันทึกข้อมูลเรียบร้อย`);
   };
 
   const handleAddEmployeeBatch = (newEmps: Omit<Employee, 'id'>[]) => {
@@ -129,18 +384,122 @@ export default function App() {
     const nextList = [...formattedEmps, ...employees];
     setEmployees(nextList);
     saveStoredData({ employees: nextList });
+    formattedEmps.forEach(emp => saveEmployeeCloud(emp));
+    triggerToast(`นำเข้าข้อมูลพนักงานจำนวน ${newEmps.length} คนเข้าระบบเรียบร้อย`);
   };
 
   const handleEditEmployee = (editedEmp: Employee) => {
+    const oldEmp = employees.find(e => e.id === editedEmp.id);
+    
+    let updatedLeaveRequests = leaveRequests;
+    let updatedSupplyRequests = supplyRequests;
+    let updatedAccounts = accounts;
+    let updatedAttendanceRecords = attendanceRecords;
+
+    if (oldEmp) {
+      const idChanged = oldEmp.employeeId !== editedEmp.employeeId;
+      const oldFullName = `${oldEmp.firstName} ${oldEmp.lastName}`;
+      const newFullName = `${editedEmp.firstName} ${editedEmp.lastName}`;
+      const nameChanged = oldFullName !== newFullName;
+
+      if (idChanged || nameChanged) {
+        // Cascade changes to Leave Requests
+        updatedLeaveRequests = leaveRequests.map(lr => {
+          if (lr.employeeId === oldEmp.employeeId) {
+            const updated = {
+              ...lr,
+              employeeId: editedEmp.employeeId,
+              employeeName: nameChanged ? newFullName : lr.employeeName
+            };
+            saveLeaveRequestCloud(updated);
+            return updated;
+          }
+          return lr;
+        });
+
+        // Cascade changes to Supply Requests
+        updatedSupplyRequests = supplyRequests.map(sr => {
+          if (sr.employeeId === oldEmp.employeeId) {
+            const updated = {
+              ...sr,
+              employeeId: editedEmp.employeeId,
+              employeeName: nameChanged ? newFullName : sr.employeeName
+            };
+            saveSupplyRequestCloud(updated);
+            return updated;
+          }
+          return sr;
+        });
+
+        // Cascade changes to Accounts
+        updatedAccounts = accounts.map(acc => {
+          if (acc.employeeId === oldEmp.employeeId) {
+            const updated = {
+              ...acc,
+              employeeId: editedEmp.employeeId,
+              name: nameChanged ? newFullName : acc.name,
+              email: acc.email === oldEmp.email ? editedEmp.email : acc.email
+            };
+            saveAccountCloud(updated);
+            return updated;
+          }
+          return acc;
+        });
+
+        // Cascade changes to Attendance Records
+        updatedAttendanceRecords = attendanceRecords.map(ar => {
+          if (ar.employeeId === oldEmp.employeeId) {
+            const updated = {
+              ...ar,
+              employeeId: editedEmp.employeeId,
+              employeeName: nameChanged ? newFullName : ar.employeeName
+            };
+            saveAttendanceRecordCloud(updated);
+            return updated;
+          }
+          return ar;
+        });
+
+        // Also update currentUser in localStorage if the edited employee is current user
+        if (currentUser && currentUser.employeeId === oldEmp.employeeId) {
+          const updatedUser: UserAccount = {
+            ...currentUser,
+            employeeId: editedEmp.employeeId,
+            name: nameChanged ? newFullName : currentUser.name,
+            email: currentUser.email === oldEmp.email ? editedEmp.email : currentUser.email
+          };
+          setCurrentUser(updatedUser);
+          localStorage.setItem('office_session', JSON.stringify(updatedUser));
+        }
+      }
+    }
+
     const nextList = employees.map(e => e.id === editedEmp.id ? editedEmp : e);
     setEmployees(nextList);
-    saveStoredData({ employees: nextList });
+    setLeaveRequests(updatedLeaveRequests);
+    setSupplyRequests(updatedSupplyRequests);
+    setAccounts(updatedAccounts);
+    setAttendanceRecords(updatedAttendanceRecords);
+
+    saveStoredData({ 
+      employees: nextList,
+      leaveRequests: updatedLeaveRequests,
+      supplyRequests: updatedSupplyRequests,
+      accounts: updatedAccounts,
+      attendanceRecords: updatedAttendanceRecords
+    });
+    
+    saveEmployeeCloud(editedEmp);
+    triggerToast(`บันทึกการแก้ไขข้อมูลของ "${editedEmp.firstName} ${editedEmp.lastName}" เรียบร้อยแล้ว`);
   };
 
   const handleDeleteEmployee = (id: string) => {
+    const emp = employees.find(e => e.id === id);
     const nextList = employees.filter(e => e.id !== id);
     setEmployees(nextList);
     saveStoredData({ employees: nextList });
+    deleteEmployeeCloud(id);
+    triggerToast(`ลบข้อมูลพนักงาน "${emp ? `${emp.firstName} ${emp.lastName}` : ''}" เรียบร้อยแล้ว`);
   };
 
   const handleAddLeaveRequest = (req: Omit<LeaveRequest, 'id' | 'createdAt'>) => {
@@ -152,17 +511,21 @@ export default function App() {
     const nextList = [newReq, ...leaveRequests];
     setLeaveRequests(nextList);
     saveStoredData({ leaveRequests: nextList });
+    saveLeaveRequestCloud(newReq);
+    triggerToast('ยื่นคำขอลาพักร้อนสำเร็จและเก็บข้อมูลแบบเรียลไทม์');
   };
 
   const handleApproveLeave = (id: string) => {
     const updatedLeaves = leaveRequests.map(l => {
       if (l.id === id) {
-        return { 
+        const u = { 
           ...l, 
           status: 'approved' as const,
           reviewedBy: 'ฝ่ายบุคคล (Admin)',
           reviewedAt: new Date().toISOString().split('T')[0]
         };
+        saveLeaveRequestCloud(u);
+        return u;
       }
       return l;
     });
@@ -173,7 +536,9 @@ export default function App() {
     if (targetLeave) {
       const updatedEmployees = employees.map(emp => {
         if (emp.employeeId === targetLeave.employeeId) {
-          return { ...emp, status: 'leave' as const };
+          const u = { ...emp, status: 'leave' as const };
+          saveEmployeeCloud(u);
+          return u;
         }
         return emp;
       });
@@ -182,12 +547,21 @@ export default function App() {
     } else {
       saveStoredData({ leaveRequests: updatedLeaves });
     }
+    triggerToast('อนุมัติการลาพักผ่อนและปรับปรุงสิทธิ์เรียบร้อยแล้ว');
   };
 
   const handleRejectLeave = (id: string) => {
-    const nextList = leaveRequests.map(l => l.id === id ? { ...l, status: 'rejected' as const } : l);
+    const nextList = leaveRequests.map(l => {
+      if (l.id === id) {
+        const u = { ...l, status: 'rejected' as const };
+        saveLeaveRequestCloud(u);
+        return u;
+      }
+      return l;
+    });
     setLeaveRequests(nextList);
     saveStoredData({ leaveRequests: nextList });
+    triggerToast('ปฏิเสธคำขอลาพักร้อนเรียบร้อยแล้ว');
   };
 
   const handleAddSupplyItem = (item: Omit<SupplyItem, 'id' | 'code'>) => {
@@ -205,33 +579,43 @@ export default function App() {
     const nextList = [newItem, ...supplyItems];
     setSupplyItems(nextList);
     saveStoredData({ supplyItems: nextList });
+    saveSupplyItemCloud(newItem);
+    triggerToast(`เพิ่มอุปกรณ์ใหม่ "${newItem.name}" สำเร็จและบันทึกสต็อกเรียบร้อย`);
   };
 
   const handleRestockItem = (id: string, amount: number) => {
     const nextList = supplyItems.map(item => {
       if (item.id === id) {
-        return { ...item, stock: item.stock + amount };
+        const u = { ...item, stock: item.stock + amount };
+        saveSupplyItemCloud(u);
+        return u;
       }
       return item;
     });
     setSupplyItems(nextList);
     saveStoredData({ supplyItems: nextList });
+    triggerToast('บันทึกการเติมสต็อกอุปกรณ์สำนักงานเรียบร้อย');
   };
 
   const handleAddSupplyRequest = (reqOrReqs: Omit<SupplyRequest, 'id' | 'createdAt' | 'status'> | Omit<SupplyRequest, 'id' | 'createdAt' | 'status'>[]) => {
     const isArray = Array.isArray(reqOrReqs);
     const reqsToProcess = isArray ? reqOrReqs : [reqOrReqs];
     
-    const newRequests: SupplyRequest[] = reqsToProcess.map((req, index) => ({
-      ...req,
-      id: `req-${Date.now()}-${index}-${Math.floor(Math.random() * 1000)}`,
-      createdAt: new Date().toISOString().split('T')[0],
-      status: 'pending'
-    }));
+    const newRequests: SupplyRequest[] = reqsToProcess.map((req, index) => {
+      const u = {
+        ...req,
+        id: `req-${Date.now()}-${index}-${Math.floor(Math.random() * 1000)}`,
+        createdAt: new Date().toISOString().split('T')[0],
+        status: 'pending' as const
+      };
+      saveSupplyRequestCloud(u);
+      return u;
+    });
 
     const nextList = [...newRequests, ...supplyRequests];
     setSupplyRequests(nextList);
     saveStoredData({ supplyRequests: nextList });
+    triggerToast('ส่งคำขอเบิกพัสดุอุปกรณ์สำเร็จและจัดเก็บแบบเรียลไทม์');
   };
 
   const handleApproveSupplyRequest = (id: string) => {
@@ -252,31 +636,51 @@ export default function App() {
     // Deduct stock
     const updatedInventory = supplyItems.map(item => {
       if (item.id === targetReq.itemId) {
-        return { ...item, stock: item.stock - targetReq.quantity };
+        const u = { ...item, stock: item.stock - targetReq.quantity };
+        saveSupplyItemCloud(u);
+        return u;
       }
       return item;
     });
     setSupplyItems(updatedInventory);
 
     // Update request state
-    const updatedRequests = supplyRequests.map(r => r.id === id ? { ...r, status: 'approved' as const } : r);
+    const updatedRequests = supplyRequests.map(r => {
+      if (r.id === id) {
+        const u = { ...r, status: 'approved' as const };
+        saveSupplyRequestCloud(u);
+        return u;
+      }
+      return r;
+    });
     setSupplyRequests(updatedRequests);
 
     saveStoredData({
       supplyItems: updatedInventory,
       supplyRequests: updatedRequests
     });
+    triggerToast('อนุมัติคำขอเบิกพัสดุและตัดสต็อกสินค้าแบบเรียลไทม์');
   };
 
   const handleRejectSupplyRequest = (id: string) => {
-    const nextList = supplyRequests.map(r => r.id === id ? { ...r, status: 'rejected' as const } : r);
+    const nextList = supplyRequests.map(r => {
+      if (r.id === id) {
+        const u = { ...r, status: 'rejected' as const };
+        saveSupplyRequestCloud(u);
+        return u;
+      }
+      return r;
+    });
     setSupplyRequests(nextList);
     saveStoredData({ supplyRequests: nextList });
+    triggerToast('ปฏิเสธคำขอเบิกวัสดุอุปกรณ์สำนักงานเรียบร้อย');
   };
 
   const handleUpdateSettings = (updatedSettings: SystemSettings) => {
     setSettings(updatedSettings);
     saveStoredData({ settings: updatedSettings });
+    saveSettingsCloud(updatedSettings);
+    triggerToast('บันทึกการเปลี่ยนแปลงการตั้งค่าระบบเรียบร้อยแล้ว');
   };
 
   const handleResetAllState = () => {
@@ -303,7 +707,9 @@ export default function App() {
       setArchives([]);
       setAttendanceRecords(initialAttendanceRecords);
       
-      window.location.reload();
+      resetAllCloudStateCloud().then(() => {
+        window.location.reload();
+      });
     }
   };
 
@@ -322,6 +728,9 @@ export default function App() {
       employees: updatedEmployeesList,
       accounts: updatedAccountsList
     });
+
+    saveEmployeeCloud(freshEmployee);
+    saveAccountCloud(newAccount);
   };
 
   const handleUpdatePassword = (email: string, newPass: string, clearRequiresPasswordChange?: boolean) => {
@@ -331,6 +740,7 @@ export default function App() {
         if (clearRequiresPasswordChange !== undefined) {
           updated.requiresPasswordChange = !clearRequiresPasswordChange;
         }
+        saveAccountCloud(updated);
         return updated;
       }
       return acc;
@@ -347,6 +757,7 @@ export default function App() {
     saveStoredData({
       accounts: updatedAccountsList
     });
+    saveAccountCloud(acc);
   };
 
   const handleDeleteAccount = (email: string) => {
@@ -355,36 +766,59 @@ export default function App() {
     saveStoredData({
       accounts: updatedAccountsList
     });
+    deleteAccountCloud(email);
   };
 
   const handleAddArchive = (newArch: ArchiveRecord) => {
     const nextList = [newArch, ...archives];
     setArchives(nextList);
     saveStoredData({ archives: nextList });
+    saveArchiveCloud(newArch);
   };
 
   const handleDeleteArchive = (id: string) => {
     const nextList = archives.filter(a => a.id !== id);
     setArchives(nextList);
     saveStoredData({ archives: nextList });
+    deleteArchiveCloud(id);
   };
 
   const handleAddAttendance = (record: AttendanceRecord) => {
     const nextList = [record, ...attendanceRecords];
     setAttendanceRecords(nextList);
     saveStoredData({ attendanceRecords: nextList });
+    saveAttendanceRecordCloud(record);
+    triggerToast('ลงเวลาเข้างาน/ออกงานเสร็จสิ้นและจัดเก็บแบบเรียลไทม์');
   };
 
   const handleAddAttendanceBatch = (records: AttendanceRecord[]) => {
     const nextList = [...records, ...attendanceRecords];
     setAttendanceRecords(nextList);
     saveStoredData({ attendanceRecords: nextList });
+    records.forEach(rec => saveAttendanceRecordCloud(rec));
+    triggerToast(`นำเข้าข้อมูลการลงเวลาจำนวน ${records.length} รายการสำเร็จ`);
   };
 
   const handleDeleteAttendance = (id: string) => {
     const nextList = attendanceRecords.filter(rec => rec.id !== id);
     setAttendanceRecords(nextList);
     saveStoredData({ attendanceRecords: nextList });
+    deleteAttendanceRecordCloud(id);
+    triggerToast('ลบรายการบันทึกเวลาปฏิบัติงานเรียบร้อย');
+  };
+
+  const handleClearAttendance = () => {
+    setAttendanceRecords([]);
+    saveStoredData({ attendanceRecords: [] });
+    clearAllAttendanceCloud();
+    triggerToast('ล้างประวัติการลงเวลาปฏิบัติงานทั้งหมดเรียบร้อย');
+  };
+
+  const handleSetAttendanceRecords = (records: AttendanceRecord[]) => {
+    setAttendanceRecords(records);
+    saveStoredData({ attendanceRecords: records });
+    records.forEach(rec => saveAttendanceRecordCloud(rec));
+    triggerToast('ปรับปรุงประวัติบันทึกเวลาทั้งหมดสำเร็จ');
   };
 
   const handleImportFullState = (full: any) => {
@@ -405,6 +839,16 @@ export default function App() {
     if (full.accounts) setAccounts(full.accounts);
     if (full.archives) setArchives(full.archives);
     if (full.attendanceRecords) setAttendanceRecords(full.attendanceRecords);
+
+    // Save all to cloud
+    if (full.employees) full.employees.forEach((x: any) => saveEmployeeCloud(x));
+    if (full.leaveRequests) full.leaveRequests.forEach((x: any) => saveLeaveRequestCloud(x));
+    if (full.supplyItems) full.supplyItems.forEach((x: any) => saveSupplyItemCloud(x));
+    if (full.supplyRequests) full.supplyRequests.forEach((x: any) => saveSupplyRequestCloud(x));
+    if (full.settings) saveSettingsCloud(full.settings);
+    if (full.accounts) full.accounts.forEach((x: any) => saveAccountCloud(x));
+    if (full.archives) full.archives.forEach((x: any) => saveArchiveCloud(x));
+    if (full.attendanceRecords) full.attendanceRecords.forEach((x: any) => saveAttendanceRecordCloud(x));
   };
 
   // Resolve current active logged-in employee detail if it is not an admin
@@ -536,6 +980,33 @@ export default function App() {
             <span>⏱️ {settings.workHoursStart} - {settings.workHoursEnd} น.</span>
             <span>📅 {settings.workDays.join(', ')}</span>
           </div>
+
+          {/* PWA Install Promo Box inside Sidebar Footer */}
+          {!isStandaloneApp && (
+            <div className="bg-gradient-to-br from-blue-950/40 to-slate-800/40 p-3 rounded-xl border border-blue-900/30 flex flex-col gap-2 mb-2">
+              <div className="flex items-center gap-1.5 text-blue-400 font-semibold text-[10px]">
+                <Smartphone className="w-3.5 h-3.5 animate-pulse" />
+                <span>พร้อมติดตั้งบนอุปกรณ์นี้</span>
+              </div>
+              <p className="text-[10px] text-slate-400 leading-tight">
+                ติดตั้งระบบเพื่อให้เปิดใช้งานได้รวดเร็วดุจแอปจริงบนมือถือและพีซีของคุณ
+              </p>
+              <button
+                type="button"
+                onClick={handleTriggerInstall}
+                className="w-full flex items-center justify-center gap-1.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-lg transition-all shadow-md active:scale-95 cursor-pointer"
+              >
+                <Download className="w-3 h-3" />
+                ติดตั้งแอปพลิเคชัน
+              </button>
+            </div>
+          )}
+          {isStandaloneApp && (
+            <div className="bg-slate-800/50 p-2.5 rounded-xl border border-slate-800 flex items-center gap-2 text-emerald-400 text-[10px] mb-2 font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+              <span>📱 เปิดใช้งานในโหมดแอปพลิเคชันแล้ว</span>
+            </div>
+          )}
           
           <button
             onClick={() => {
@@ -638,6 +1109,36 @@ export default function App() {
                   </button>
                 );
               })}
+
+              {/* Mobile PWA Install Trigger */}
+              {!isStandaloneApp && (
+                <div className="mx-2 my-3 p-3 bg-slate-900 border border-slate-800 rounded-xl flex flex-col gap-2">
+                  <div className="flex items-center gap-1.5 text-blue-400 font-bold text-xs">
+                    <Smartphone className="w-4 h-4 animate-bounce" />
+                    <span>พร้อมย้ายไปติดตั้งเป็นแอป</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-tight">
+                    เข้าใช้งานผ่านหน้าจอโฮมโดยตรง ดุจใช้งานแอปพลิเคชันจริง รวดเร็ว ไม่ต้องลงชื่อเข้าใหม่บ่อยๆ
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      handleTriggerInstall();
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    ติดตั้งแอปบนหน้าจอมือถือ
+                  </button>
+                </div>
+              )}
+              {isStandaloneApp && (
+                <div className="mx-2 my-3 p-3 bg-slate-900/60 border border-slate-800 rounded-xl flex items-center gap-2 text-emerald-400 text-xs font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping flex-shrink-0"></span>
+                  <span>เปิดใช้งานบนโหมดโมบายแอปสมบูรณ์แบบ</span>
+                </div>
+              )}
 
               <button
                 onClick={() => {
@@ -786,6 +1287,8 @@ export default function App() {
                   onAddAttendance={handleAddAttendance}
                   onAddAttendanceBatch={handleAddAttendanceBatch}
                   onDeleteAttendance={handleDeleteAttendance}
+                  onClearAttendance={handleClearAttendance}
+                  onSetAttendanceRecords={handleSetAttendanceRecords}
                   currentUser={currentUser}
                   settings={settings}
                   onAddEmployeeBatch={handleAddEmployeeBatch}
@@ -893,6 +1396,188 @@ export default function App() {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Real-time Dynamic Toast Notification */}
+      <AnimatePresence>
+        {toastMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            transition={{ type: "spring", stiffness: 300, damping: 25 }}
+            className="fixed bottom-6 right-6 z-[120] max-w-sm w-full md:w-auto"
+            id="realtime-toast"
+          >
+            <div className={`flex items-center gap-3 p-4 rounded-2xl shadow-xl border ${
+              toastType === 'sync' 
+                ? 'bg-sky-50 border-sky-200 text-sky-800' 
+                : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+            }`}>
+              <div className={`p-1.5 rounded-xl ${
+                toastType === 'sync' ? 'bg-sky-500 text-white animate-spin' : 'bg-emerald-500 text-white'
+              }`}>
+                {toastType === 'sync' ? (
+                  <RefreshCw className="w-4 h-4" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4" />
+                )}
+              </div>
+              <div className="flex-1 text-xs font-semibold font-sans">
+                <span className="block text-[10px] uppercase tracking-wider opacity-60 mb-0.5 font-bold">
+                  {toastType === 'sync' ? 'การประมวลผลข้อมูลแบบเรียลไทม์' : 'ระบบบันทึกความเปลี่ยนแปลงเสร็จสมบูรณ์'}
+                </span>
+                {toastMessage}
+              </div>
+              <button 
+                onClick={() => setToastMessage(null)}
+                className="text-slate-400 hover:text-slate-600 transition p-1 rounded-lg"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* iOS Installation Instruction Modal */}
+      <AnimatePresence>
+        {showIOSInstruction && (
+          <div className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" id="ios-pwa-modal">
+            <motion.div
+              initial={{ y: 100, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 100, opacity: 0 }}
+              className="bg-white rounded-t-3xl sm:rounded-2xl max-w-sm w-full shadow-2xl border border-slate-100 overflow-hidden pb-6 sm:pb-0"
+              id="ios-modal-box"
+            >
+              <div className="p-6 space-y-5">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+                      <Smartphone className="w-5 h-5" />
+                    </div>
+                    <span className="text-sm font-bold text-slate-950 font-sans">คู่มือติดตั้งบน iOS (Safari)</span>
+                  </div>
+                  <button
+                    onClick={() => setShowIOSInstruction(false)}
+                    className="text-slate-400 hover:text-slate-600 transition p-1 rounded-lg hover:bg-slate-50"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-4 text-slate-700 text-xs leading-relaxed">
+                  <p className="font-medium text-slate-500 font-sans">
+                    คุณสามารถใช้งานระบบ Office HQ OS ได้รวดเร็วดุจแอปจริง โดยไม่ต้องดาวน์โหลดผ่าน App Store เพียงทำตามขั้นตอนนี้:
+                  </p>
+
+                  <div className="flex gap-3.5 items-start">
+                    <div className="w-6 h-6 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs flex-shrink-0">
+                      1
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-900 block font-sans">แตะปุ่ม "แชร์" (Share)</span>
+                      <p className="text-slate-500 mt-0.5">
+                        แตะปุ่มแชร์รูปสี่เหลี่ยมที่มีลูกศรชี้ขึ้น <span className="inline-flex items-center justify-center p-1 bg-slate-100 rounded text-slate-600 mx-0.5 font-bold"><Share2 className="w-3.5 h-3.5" /></span> บริเวณแถบด้านล่างของจอภาพ Safari
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3.5 items-start">
+                    <div className="w-6 h-6 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs flex-shrink-0">
+                      2
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-900 block font-sans">เลือก "เพิ่มไปยังหน้าจอโฮม"</span>
+                      <p className="text-slate-500 mt-0.5">
+                        เลื่อนรายการเมนูลงมาด้านล่าง แล้วแตะที่ <span className="font-bold text-blue-600">"เพิ่มไปยังหน้าจอโฮม"</span> (Add to Home Screen)
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3.5 items-start">
+                    <div className="w-6 h-6 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs flex-shrink-0">
+                      3
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-900 block font-sans">แตะ "เพิ่ม" (Add)</span>
+                      <p className="text-slate-500 mt-0.5">
+                        พิมพ์ชื่อแอปพลิเคชัน (หรือปล่อยเป็นค่าเริ่มต้น) แล้วแตะ "เพิ่ม" (Add) ที่มุมขวาบน เพื่อเสร็จสิ้นขั้นตอน
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowIOSInstruction(false)}
+                  className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition"
+                >
+                  เข้าใจแล้ว
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Dynamic Floating PWA Installation Promo Assistant */}
+      <AnimatePresence>
+        {!isStandaloneApp && showInstallBanner && (isInstallable || (/iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream)) && (
+          <motion.div
+            initial={{ opacity: 0, y: 100, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 50, scale: 0.95 }}
+            className="fixed bottom-6 left-6 right-6 md:left-auto md:right-6 z-[90] max-w-sm w-auto"
+            id="pwa-floating-assistant"
+          >
+            <div className="bg-slate-900/95 border border-slate-800 text-white p-4 rounded-2xl shadow-2xl backdrop-blur-md relative overflow-hidden">
+              {/* Sleek top ambient light bar */}
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-sky-400 to-indigo-500"></div>
+              
+              <div className="flex gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center flex-shrink-0 text-white font-black text-base shadow-lg animate-pulse">
+                  O
+                </div>
+                <div className="flex-1">
+                  <span className="block text-[10px] text-blue-400 font-black uppercase tracking-wider mb-0.5">
+                    MOBILE APP INSTALL READY
+                  </span>
+                  <h4 className="text-xs font-bold font-sans text-white">ติดตั้งแอป Office HQ OS</h4>
+                  <p className="text-[10px] text-slate-400 leading-tight mt-0.5 font-sans">
+                    ย้ายไอคอนมาอยู่บนจอโฮมเพื่อเข้าใช้งานที่สะดวก รวดเร็ว และประหยัดพลังงานมากกว่าเว็บทั่วไป
+                  </p>
+                  
+                  <div className="flex items-center gap-3 mt-3">
+                    <button
+                      type="button"
+                      onClick={handleTriggerInstall}
+                      className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-black rounded-lg transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-1"
+                    >
+                      <Download className="w-3 h-3" />
+                      ติดตั้งเลย
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDismissBanner}
+                      className="text-slate-400 hover:text-white text-[10px] font-semibold transition"
+                    >
+                      ไว้ภายหลัง
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleDismissBanner}
+                  className="text-slate-500 hover:text-slate-300 transition p-1 h-fit"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

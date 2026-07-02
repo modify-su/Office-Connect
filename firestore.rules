@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow reading and writing for employees
+    match /employees/{employeeId} {
+      allow read, write: if true;
+    }
+    // Allow reading and writing for leaveRequests
+    match /leaveRequests/{leaveRequestId} {
+      allow read, write: if true;
+    }
+    // Allow reading and writing for supplyItems
+    match /supplyItems/{supplyItemId} {
+      allow read, write: if true;
+    }
+    // Allow reading and writing for supplyRequests
+    match /supplyRequests/{supplyRequestId} {
+      allow read, write: if true;
+    }
+    // Allow reading and writing for settings
+    match /settings/{document} {
+      allow read, write: if true;
+    }
+    // Allow reading and writing for accounts
+    match /accounts/{accountId} {
+      allow read, write: if true;
+    }
+    // Allow reading and writing for archives
+    match /archives/{archiveId} {
+      allow read, write: if true;
+    }
+    // Allow reading and writing for attendanceRecords
+    match /attendanceRecords/{attendanceRecordId} {
+      allow read, write: if true;
+    }
+  }
+}

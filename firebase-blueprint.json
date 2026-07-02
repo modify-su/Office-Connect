@@ -1,0 +1,172 @@
+{
+  "entities": {
+    "Employee": {
+      "title": "Employee",
+      "description": "Employee profile details and contact information.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "employeeId": { "type": "string" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "position": { "type": "string" },
+        "department": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "startDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "leave", "suspended"] },
+        "avatar": { "type": "string" },
+        "personalId": { "type": "string" },
+        "birthDate": { "type": "string" },
+        "address": { "type": "string" },
+        "verificationStatus": { "type": "string", "enum": ["verified", "pending"] }
+      },
+      "required": ["id", "employeeId", "firstName", "lastName", "position", "department", "email", "phone", "startDate", "status"]
+    },
+    "LeaveRequest": {
+      "title": "LeaveRequest",
+      "description": "Employee time off/leave of absence request record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "employeeId": { "type": "string" },
+        "employeeName": { "type": "string" },
+        "leaveType": { "type": "string", "enum": ["sick", "annual", "personal", "maternity", "other"] },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "days": { "type": "integer" },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "createdAt": { "type": "string" },
+        "reviewedBy": { "type": "string" },
+        "reviewedAt": { "type": "string" }
+      },
+      "required": ["id", "employeeId", "employeeName", "leaveType", "startDate", "endDate", "days", "reason", "status", "createdAt"]
+    },
+    "SupplyItem": {
+      "title": "SupplyItem",
+      "description": "Office supply item inventory and details.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "stock": { "type": "integer" },
+        "minStock": { "type": "integer" },
+        "unit": { "type": "string" },
+        "price": { "type": "number" }
+      },
+      "required": ["id", "code", "name", "category", "stock", "minStock", "unit", "price"]
+    },
+    "SupplyRequest": {
+      "title": "SupplyRequest",
+      "description": "Office supply dispensation request by an employee.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "employeeId": { "type": "string" },
+        "employeeName": { "type": "string" },
+        "itemId": { "type": "string" },
+        "itemName": { "type": "string" },
+        "quantity": { "type": "integer" },
+        "purpose": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "createdAt": { "type": "string" },
+        "reviewedBy": { "type": "string" },
+        "reviewedAt": { "type": "string" }
+      },
+      "required": ["id", "employeeId", "employeeName", "itemId", "itemName", "quantity", "purpose", "status", "createdAt"]
+    },
+    "SystemSettings": {
+      "title": "SystemSettings",
+      "description": "Global administration preferences and parameters.",
+      "type": "object",
+      "properties": {
+        "companyName": { "type": "string" },
+        "companyAddress": { "type": "string" },
+        "workHoursStart": { "type": "string" },
+        "workHoursEnd": { "type": "string" },
+        "hasOvertime": { "type": "boolean" }
+      },
+      "required": ["companyName", "companyAddress", "workHoursStart", "workHoursEnd"]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Credentials and access levels for system users.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "employee"] },
+        "employeeId": { "type": "string" },
+        "name": { "type": "string" },
+        "requiresPasswordChange": { "type": "boolean" }
+      },
+      "required": ["email", "role", "name"]
+    },
+    "ArchiveRecord": {
+      "title": "ArchiveRecord",
+      "description": "A historic snapshot archive of company metrics.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "archiveName": { "type": "string" },
+        "archivedAt": { "type": "string" },
+        "dateRange": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "archiveName", "archivedAt", "dateRange"]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "Employee clock-in/clock-out check-in time sheet record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "employeeId": { "type": "string" },
+        "employeeName": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "type": { "type": "string", "enum": ["clock_in", "clock_out", "late", "overtime"] },
+        "recordedBy": { "type": "string" }
+      },
+      "required": ["id", "employeeId", "employeeName", "date", "time", "type", "recordedBy"]
+    }
+  },
+  "firestore": {
+    "/employees/{employeeId}": {
+      "schema": "Employee",
+      "description": "Store profiles for every organization employee."
+    },
+    "/leaveRequests/{leaveRequestId}": {
+      "schema": "LeaveRequest",
+      "description": "Track official vacation and sick leave approvals."
+    },
+    "/supplyItems/{supplyItemId}": {
+      "schema": "SupplyItem",
+      "description": "Real-time storage of active office inventory and item price/specs."
+    },
+    "/supplyRequests/{supplyRequestId}": {
+      "schema": "SupplyRequest",
+      "description": "History of requisition requests."
+    },
+    "/settings/system": {
+      "schema": "SystemSettings",
+      "description": "Global settings parameters, company details, etc."
+    },
+    "/accounts/{accountId}": {
+      "schema": "UserAccount",
+      "description": "Auth profiles synced to user logins."
+    },
+    "/archives/{archiveId}": {
+      "schema": "ArchiveRecord",
+      "description": "Immutable history snapshots."
+    },
+    "/attendanceRecords/{attendanceRecordId}": {
+      "schema": "AttendanceRecord",
+      "description": "In-out punch times, overtime, and punctuality logs."
+    }
+  }
+}

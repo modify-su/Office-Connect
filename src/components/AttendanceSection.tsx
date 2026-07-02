@@ -33,6 +33,8 @@ interface AttendanceSectionProps {
   onAddAttendance: (record: AttendanceRecord) => void;
   onAddAttendanceBatch?: (records: AttendanceRecord[]) => void;
   onDeleteAttendance?: (id: string) => void; // Help admin manage mistakes
+  onClearAttendance?: () => void;
+  onSetAttendanceRecords?: (records: AttendanceRecord[]) => void;
   currentUser?: UserAccount | null;
   settings: SystemSettings;
   onAddEmployeeBatch?: (newEmployees: Omit<Employee, 'id'>[]) => void;
@@ -86,6 +88,8 @@ export default function AttendanceSection({
   onAddAttendance,
   onAddAttendanceBatch,
   onDeleteAttendance,
+  onClearAttendance,
+  onSetAttendanceRecords,
   currentUser,
   settings,
   onAddEmployeeBatch
@@ -139,6 +143,9 @@ export default function AttendanceSection({
   const [isDragging, setIsDragging] = useState(false);
   const [importNotification, setImportNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [historyNotification, setHistoryNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   // Reset import page to 1 when import filters or data change
   useEffect(() => {
@@ -871,6 +878,52 @@ export default function AttendanceSection({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleClearAllHistory = () => {
+    if (onClearAttendance) {
+      onClearAttendance();
+      setShowClearConfirm(false);
+      setHistoryNotification({
+        type: 'success',
+        message: 'ล้างประวัติการลงเวลาทั้งหมดเรียบร้อยแล้ว!'
+      });
+      setTimeout(() => setHistoryNotification(null), 5000);
+    }
+  };
+
+  const handleDeduplicateHistory = () => {
+    const seen = new Set<string>();
+    const uniqueRecords: AttendanceRecord[] = [];
+    let duplicatesCount = 0;
+
+    // Iterate through attendanceRecords.
+    // Keep the first unique entry seen.
+    attendanceRecords.forEach(rec => {
+      const key = `${rec.employeeId}_${rec.date}_${rec.time}_${rec.type}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueRecords.push(rec);
+      } else {
+        duplicatesCount++;
+      }
+    });
+
+    if (duplicatesCount === 0) {
+      setHistoryNotification({
+        type: 'info',
+        message: 'ไม่พบข้อมูลบันทึกเวลาที่ซ้ำซ้อนในฐานข้อมูล'
+      });
+    } else {
+      if (onSetAttendanceRecords) {
+        onSetAttendanceRecords(uniqueRecords);
+        setHistoryNotification({
+          type: 'success',
+          message: `เคลียร์ประวัติซ้ำสำเร็จ! ลบรายการที่ซ้ำซ้อนออกทั้งหมดจำนวน ${duplicatesCount} รายการ`
+        });
+      }
+    }
+    setTimeout(() => setHistoryNotification(null), 5000);
   };
 
   // Memoized individual-level analysis from parsed spreadsheet rows
@@ -1875,8 +1928,8 @@ export default function AttendanceSection({
               </p>
             </div>
             
-            {/* Export Actions Trigger */}
-            <div className="flex items-center gap-2">
+            {/* Export & Admin Management Actions Trigger */}
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={handleExportCSV}
                 className="bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs py-2 px-3 border border-slate-200 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm"
@@ -1893,8 +1946,76 @@ export default function AttendanceSection({
                 <Download className="w-3.5 h-3.5" />
                 ส่งออก Excel
               </button>
+
+              {!isEmployee && (
+                <div className="flex items-center gap-2 border-l border-slate-200 pl-2">
+                  <button
+                    onClick={handleDeduplicateHistory}
+                    className="bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 font-bold text-xs py-2 px-3.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm shadow-amber-50"
+                    title="ลบรายการบันทึกเวลาที่ซ้ำกัน (รหัสพนักงาน วันที่ เวลา และประเภทเดียวกัน) ออก"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    เคลียร์ประวัติซ้ำ
+                  </button>
+                  
+                  {showClearConfirm ? (
+                    <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-200 rounded-xl p-1 shadow-sm">
+                      <span className="text-[10px] text-rose-700 font-bold px-1">ยืนยันลบทั้งหมด?</span>
+                      <button
+                        onClick={handleClearAllHistory}
+                        className="bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-[10px] py-1 px-2 rounded-lg transition cursor-pointer"
+                      >
+                        ยืนยัน
+                      </button>
+                      <button
+                        onClick={() => setShowClearConfirm(false)}
+                        className="bg-white hover:bg-slate-100 text-slate-500 border border-slate-200 font-bold text-[10px] py-1 px-2 rounded-lg transition cursor-pointer"
+                      >
+                        ยกเลิก
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowClearConfirm(true)}
+                      className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs py-2 px-3.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm shadow-rose-50"
+                      title="ล้างประวัติการลงเวลาทั้งหมดออกจากระบบอย่างถาวร"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      ล้างหน้าประวัติ
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
+
+          {/* History Operations Notifications */}
+          {historyNotification && (
+            <div className={`p-3 rounded-xl flex items-center justify-between gap-3 border transition-all shadow-sm ${
+              historyNotification.type === 'success' 
+                ? 'bg-emerald-50/70 border-emerald-100 text-emerald-800' 
+                : historyNotification.type === 'info'
+                ? 'bg-blue-50/70 border-blue-100 text-blue-800'
+                : 'bg-rose-50/70 border-rose-100 text-rose-800'
+            }`}>
+              <div className="flex items-center gap-2">
+                {historyNotification.type === 'success' ? (
+                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : historyNotification.type === 'info' ? (
+                  <Info className="w-4 h-4 text-blue-600 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                )}
+                <p className="text-xs font-semibold leading-relaxed">{historyNotification.message}</p>
+              </div>
+              <button 
+                onClick={() => setHistoryNotification(null)}
+                className="text-slate-400 hover:text-slate-600 text-[11px] font-bold px-2 py-0.5 rounded hover:bg-slate-100 transition"
+              >
+                ปิด
+              </button>
+            </div>
+          )}
 
           {/* Form Filter Inputs */}
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
