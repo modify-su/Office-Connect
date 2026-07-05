@@ -25,7 +25,7 @@ export interface Employee {
   verificationStatus?: 'verified' | 'pending';
 }
 
-export type LeaveType = 'sick' | 'annual' | 'personal' | 'maternity' | 'other';
+export type LeaveType = 'sick' | 'annual' | 'personal' | 'maternity' | 'other' | 'swap';
 export type LeaveStatus = 'pending' | 'approved' | 'rejected';
 
 export interface LeaveRequest {
@@ -41,6 +41,8 @@ export interface LeaveRequest {
   createdAt: string;
   reviewedBy?: string;
   reviewedAt?: string;
+  swapFromDate?: string;
+  swapToDate?: string;
 }
 
 export interface SupplyItem {
@@ -84,6 +86,17 @@ export interface SystemSettings {
   hasOvertime: boolean;
   menuPermissions?: Record<string, 'all' | 'admin_only'>;
   departments?: string[];
+  loginLogoUrl?: string;
+  loginTitle?: string;
+  loginSubtitle?: string;
+}
+
+export interface UserAccountPermissions {
+  canApproveLeave?: boolean;
+  canApproveSupply?: boolean;
+  canManageEmployees?: boolean;
+  canManageSettings?: boolean;
+  canViewArchives?: boolean;
 }
 
 export interface UserAccount {
@@ -94,6 +107,7 @@ export interface UserAccount {
   employeeId?: string;
   name: string;
   requiresPasswordChange?: boolean;
+  permissions?: UserAccountPermissions;
 }
 
 export interface ArchiveRecord {

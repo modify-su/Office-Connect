@@ -7,7 +7,7 @@ import {
   getDocs,
   getDoc
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 import { 
   Employee, 
   LeaveRequest, 
@@ -28,29 +28,72 @@ const getAccountDocId = (email: string) => {
   return email.toLowerCase().trim().replace(/[\.\#\$\[\]]/g, '_');
 };
 
+// Recursive helper to clean undefined fields before saving to Firestore, as Firestore throws an error for undefined values
+function cleanUndefined<T>(obj: T): T {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(item => cleanUndefined(item)) as unknown as T;
+  }
+  if (typeof obj === 'object') {
+    const newObj: any = {};
+    for (const key of Object.keys(obj)) {
+      const val = (obj as any)[key];
+      if (val !== undefined) {
+        newObj[key] = cleanUndefined(val);
+      }
+    }
+    return newObj as T;
+  }
+  return obj;
+}
+
 // Seeding helper to initialize Firestore when first provisioned or empty
 export async function seedFirestoreIfEmpty() {
   try {
     // 1. Seed System Settings if empty
     const settingsDocRef = doc(db, 'settings', 'system');
-    const settingsSnap = await getDoc(settingsDocRef);
+    let settingsSnap;
+    try {
+      settingsSnap = await getDoc(settingsDocRef);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, 'settings/system');
+      return;
+    }
+
     if (!settingsSnap.exists()) {
-      await setDoc(settingsDocRef, defaultSettings);
-      console.log('Seeded default settings to Firestore');
+      try {
+        await setDoc(settingsDocRef, defaultSettings);
+        console.log('Seeded default settings to Firestore');
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'settings/system');
+      }
     }
 
     // 2. Seed User Accounts if empty
     const accountsColRef = collection(db, 'accounts');
-    const accountsSnap = await getDocs(accountsColRef);
+    let accountsSnap;
+    try {
+      accountsSnap = await getDocs(accountsColRef);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'accounts');
+      return;
+    }
+
     if (accountsSnap.empty) {
-      const batch = writeBatch(db);
-      initialAccounts.forEach(acc => {
-        const docId = getAccountDocId(acc.email);
-        const docRef = doc(db, 'accounts', docId);
-        batch.set(docRef, acc);
-      });
-      await batch.commit();
-      console.log('Seeded initial accounts to Firestore');
+      try {
+        const batch = writeBatch(db);
+        initialAccounts.forEach(acc => {
+          const docId = getAccountDocId(acc.email);
+          const docRef = doc(db, 'accounts', docId);
+          batch.set(docRef, cleanUndefined(acc));
+        });
+        await batch.commit();
+        console.log('Seeded initial accounts to Firestore');
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'accounts');
+      }
     }
   } catch (error) {
     console.error('Error during Firestore seeding:', error);
@@ -59,98 +102,170 @@ export async function seedFirestoreIfEmpty() {
 
 // --- EMPLOYEES MUTATORS ---
 export async function saveEmployeeCloud(emp: Employee) {
-  const docRef = doc(db, 'employees', emp.id);
-  await setDoc(docRef, emp);
+  try {
+    const docRef = doc(db, 'employees', emp.id);
+    await setDoc(docRef, cleanUndefined(emp));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `employees/${emp.id}`);
+  }
 }
 
 export async function deleteEmployeeCloud(id: string) {
-  const docRef = doc(db, 'employees', id);
-  await deleteDoc(docRef);
+  try {
+    const docRef = doc(db, 'employees', id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `employees/${id}`);
+  }
 }
 
 // --- LEAVE REQUESTS MUTATORS ---
 export async function saveLeaveRequestCloud(req: LeaveRequest) {
-  const docRef = doc(db, 'leaveRequests', req.id);
-  await setDoc(docRef, req);
+  try {
+    const docRef = doc(db, 'leaveRequests', req.id);
+    await setDoc(docRef, cleanUndefined(req));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `leaveRequests/${req.id}`);
+  }
 }
 
 export async function deleteLeaveRequestCloud(id: string) {
-  const docRef = doc(db, 'leaveRequests', id);
-  await deleteDoc(docRef);
+  try {
+    const docRef = doc(db, 'leaveRequests', id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `leaveRequests/${id}`);
+  }
 }
 
 // --- SUPPLY ITEMS MUTATORS ---
 export async function saveSupplyItemCloud(item: SupplyItem) {
-  const docRef = doc(db, 'supplyItems', item.id);
-  await setDoc(docRef, item);
+  try {
+    const docRef = doc(db, 'supplyItems', item.id);
+    await setDoc(docRef, cleanUndefined(item));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `supplyItems/${item.id}`);
+  }
 }
 
 export async function deleteSupplyItemCloud(id: string) {
-  const docRef = doc(db, 'supplyItems', id);
-  await deleteDoc(docRef);
+  try {
+    const docRef = doc(db, 'supplyItems', id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `supplyItems/${id}`);
+  }
 }
 
 // --- SUPPLY REQUESTS MUTATORS ---
 export async function saveSupplyRequestCloud(req: SupplyRequest) {
-  const docRef = doc(db, 'supplyRequests', req.id);
-  await setDoc(docRef, req);
+  try {
+    const docRef = doc(db, 'supplyRequests', req.id);
+    await setDoc(docRef, cleanUndefined(req));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `supplyRequests/${req.id}`);
+  }
 }
 
 export async function deleteSupplyRequestCloud(id: string) {
-  const docRef = doc(db, 'supplyRequests', id);
-  await deleteDoc(docRef);
+  try {
+    const docRef = doc(db, 'supplyRequests', id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `supplyRequests/${id}`);
+  }
 }
 
 // --- SYSTEM SETTINGS MUTATORS ---
 export async function saveSettingsCloud(settings: SystemSettings) {
-  const docRef = doc(db, 'settings', 'system');
-  await setDoc(docRef, settings);
+  try {
+    const docRef = doc(db, 'settings', 'system');
+    await setDoc(docRef, cleanUndefined(settings));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, 'settings/system');
+  }
 }
 
 // --- USER ACCOUNTS MUTATORS ---
 export async function saveAccountCloud(acc: UserAccount) {
   const docId = getAccountDocId(acc.email);
-  const docRef = doc(db, 'accounts', docId);
-  await setDoc(docRef, acc);
+  try {
+    const docRef = doc(db, 'accounts', docId);
+    await setDoc(docRef, cleanUndefined(acc));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `accounts/${docId}`);
+  }
 }
 
 export async function deleteAccountCloud(email: string) {
   const docId = getAccountDocId(email);
-  const docRef = doc(db, 'accounts', docId);
-  await deleteDoc(docRef);
+  try {
+    const docRef = doc(db, 'accounts', docId);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `accounts/${docId}`);
+  }
 }
 
 // --- ARCHIVES MUTATORS ---
 export async function saveArchiveCloud(archive: ArchiveRecord) {
-  const docRef = doc(db, 'archives', archive.id);
-  await setDoc(docRef, archive);
+  try {
+    const docRef = doc(db, 'archives', archive.id);
+    await setDoc(docRef, cleanUndefined(archive));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `archives/${archive.id}`);
+  }
 }
 
 export async function deleteArchiveCloud(id: string) {
-  const docRef = doc(db, 'archives', id);
-  await deleteDoc(docRef);
+  try {
+    const docRef = doc(db, 'archives', id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `archives/${id}`);
+  }
 }
 
 // --- ATTENDANCE RECORDS MUTATORS ---
 export async function saveAttendanceRecordCloud(record: AttendanceRecord) {
-  const docRef = doc(db, 'attendanceRecords', record.id);
-  await setDoc(docRef, record);
+  try {
+    const docRef = doc(db, 'attendanceRecords', record.id);
+    await setDoc(docRef, cleanUndefined(record));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `attendanceRecords/${record.id}`);
+  }
 }
 
 export async function deleteAttendanceRecordCloud(id: string) {
-  const docRef = doc(db, 'attendanceRecords', id);
-  await deleteDoc(docRef);
+  try {
+    const docRef = doc(db, 'attendanceRecords', id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `attendanceRecords/${id}`);
+  }
 }
 
 export async function clearAllAttendanceCloud() {
   try {
     const colRef = collection(db, 'attendanceRecords');
-    const snap = await getDocs(colRef);
+    let snap;
+    try {
+      snap = await getDocs(colRef);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'attendanceRecords');
+      return;
+    }
+
     const batch = writeBatch(db);
     snap.docs.forEach(d => {
       batch.delete(d.ref);
     });
-    await batch.commit();
+    
+    try {
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'attendanceRecords');
+    }
   } catch (err) {
     console.error('Error clearing attendance records on cloud:', err);
   }
@@ -169,23 +284,35 @@ export async function resetAllCloudStateCloud() {
   ];
 
   for (const colName of collections) {
-    const colRef = collection(db, colName);
-    const snap = await getDocs(colRef);
-    const batch = writeBatch(db);
-    snap.docs.forEach(d => {
-      batch.delete(d.ref);
-    });
-    await batch.commit();
+    try {
+      const colRef = collection(db, colName);
+      const snap = await getDocs(colRef);
+      const batch = writeBatch(db);
+      snap.docs.forEach(d => {
+        batch.delete(d.ref);
+      });
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, colName);
+    }
   }
 
   // Restore defaults
-  await setDoc(doc(db, 'settings', 'system'), defaultSettings);
+  try {
+    await setDoc(doc(db, 'settings', 'system'), cleanUndefined(defaultSettings));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, 'settings/system');
+  }
   
-  const accountsBatch = writeBatch(db);
-  initialAccounts.forEach(acc => {
-    const docId = getAccountDocId(acc.email);
-    const docRef = doc(db, 'accounts', docId);
-    accountsBatch.set(docRef, acc);
-  });
-  await accountsBatch.commit();
+  try {
+    const accountsBatch = writeBatch(db);
+    initialAccounts.forEach(acc => {
+      const docId = getAccountDocId(acc.email);
+      const docRef = doc(db, 'accounts', docId);
+      accountsBatch.set(docRef, cleanUndefined(acc));
+    });
+    await accountsBatch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, 'accounts');
+  }
 }

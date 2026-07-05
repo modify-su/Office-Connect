@@ -18,7 +18,7 @@ import {
   HelpCircle,
   UserCheck
 } from 'lucide-react';
-import { Employee, UserAccount } from '../types';
+import { Employee, UserAccount, SystemSettings } from '../types';
 
 interface LoginAuthProps {
   accounts: UserAccount[];
@@ -27,6 +27,7 @@ interface LoginAuthProps {
   onRegisterCustomEmployee: (newEmployee: Omit<Employee, 'id'>, account: UserAccount) => void;
   onUpdateAccountPassword: (email: string, newPass: string, clearRequiresPasswordChange?: boolean) => void;
   departments?: string[];
+  settings?: SystemSettings;
 }
 
 type AuthMode = 'login' | 'register' | 'forgot' | 'first-login-change-password';
@@ -43,7 +44,8 @@ export default function LoginAuth({
     'ฝ่ายขายและการตลาด',
     'บัญชีและการเงิน',
     'ฝ่ายบริหารองค์กร'
-  ]
+  ],
+  settings
 }: LoginAuthProps) {
   const [mode, setMode] = useState<AuthMode>('login');
   
@@ -329,14 +331,31 @@ export default function LoginAuth({
         
         {/* Brand logo/header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white shadow-xl shadow-blue-950/40 mb-3" id="brand-auth-icon">
-            <Building2 className="w-7 h-7" />
-          </div>
+          {settings?.loginLogoUrl ? (
+            (!settings.loginLogoUrl.startsWith('http') && !settings.loginLogoUrl.startsWith('data:image')) ? (
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-slate-800 to-slate-700 text-white border border-slate-750 shadow-xl mb-3 text-3xl" id="brand-auth-icon">
+                {settings.loginLogoUrl}
+              </div>
+            ) : (
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white p-2 border border-slate-700 shadow-xl mb-3 overflow-hidden animate-fadeIn" id="brand-auth-icon">
+                <img 
+                  src={settings.loginLogoUrl} 
+                  alt="Company Logo" 
+                  className="max-w-full max-h-full object-contain"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+            )
+          ) : (
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white shadow-xl shadow-blue-950/40 mb-3" id="brand-auth-icon">
+              <Building2 className="w-7 h-7" />
+            </div>
+          )}
           <h2 className="text-2xl font-bold text-white tracking-tight font-sans">
-            ระบบจัดการสำนักงานส่วนกลาง
+            {settings?.loginTitle || 'ระบบจัดการสำนักงานส่วนกลาง'}
           </h2>
           <p className="text-slate-400 text-xs mt-1">
-            Office Information HR Management & Supply Resource Suite
+            {settings?.loginSubtitle || 'Office Information HR Management & Supply Resource Suite'}
           </p>
         </div>
 
@@ -388,7 +407,7 @@ export default function LoginAuth({
                     <input
                       type="text"
                       required
-                      placeholder="เช่น modify หรือ somchai.j@office.co.th"
+                      placeholder="ชื่อผู้ใช้งาน หรือ อีเมล"
                       value={loginEmail}
                       onChange={(e) => setLoginEmail(e.target.value)}
                       className="w-full pl-9 pr-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"

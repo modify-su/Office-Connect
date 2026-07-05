@@ -26,6 +26,7 @@ import {
   Key,
   ShieldCheck,
   UserCheck,
+  Upload,
   LayoutDashboard,
   Package,
   FolderClosed,
@@ -43,6 +44,7 @@ interface SettingsSectionProps {
   onAddAccount: (acc: UserAccount) => void;
   onDeleteAccount: (email: string) => void;
   onUpdateAccountPassword: (email: string, newPass: string, clearRequiresPasswordChange?: boolean) => void;
+  onUpdateAccount?: (acc: UserAccount) => void;
   activeUserEmail: string;
 }
 
@@ -55,10 +57,82 @@ export default function SettingsSection({
   onAddAccount,
   onDeleteAccount,
   onUpdateAccountPassword,
+  onUpdateAccount,
   activeUserEmail
 }: SettingsSectionProps) {
   // Navigation level tab: system settings OR User/password settings
   const [activeSubTab, setActiveSubTab] = useState<'system' | 'users'>('system');
+
+  // Permissions Modal state
+  const [selectedPermsAccount, setSelectedPermsAccount] = useState<UserAccount | null>(null);
+  const [modalRole, setModalRole] = useState<'admin' | 'employee'>('employee');
+  const [modalCanApproveLeave, setModalCanApproveLeave] = useState(false);
+  const [modalCanApproveSupply, setModalCanApproveSupply] = useState(false);
+  const [modalCanManageEmployees, setModalCanManageEmployees] = useState(false);
+  const [modalCanManageSettings, setModalCanManageSettings] = useState(false);
+  const [modalCanViewArchives, setModalCanViewArchives] = useState(false);
+
+  const handleOpenPermissionsModal = (acc: UserAccount) => {
+    setSelectedPermsAccount(acc);
+    setModalRole(acc.role);
+    setModalCanApproveLeave(acc.permissions?.canApproveLeave || false);
+    setModalCanApproveSupply(acc.permissions?.canApproveSupply || false);
+    setModalCanManageEmployees(acc.permissions?.canManageEmployees || false);
+    setModalCanManageSettings(acc.permissions?.canManageSettings || false);
+    setModalCanViewArchives(acc.permissions?.canViewArchives || false);
+  };
+
+  const applyPermissionTemplate = (type: 'hr' | 'inventory' | 'general' | 'coadmin') => {
+    if (type === 'hr') {
+      setModalRole('employee');
+      setModalCanApproveLeave(true);
+      setModalCanApproveSupply(false);
+      setModalCanManageEmployees(true);
+      setModalCanManageSettings(false);
+      setModalCanViewArchives(true);
+    } else if (type === 'inventory') {
+      setModalRole('employee');
+      setModalCanApproveLeave(false);
+      setModalCanApproveSupply(true);
+      setModalCanManageEmployees(false);
+      setModalCanManageSettings(false);
+      setModalCanViewArchives(false);
+    } else if (type === 'general') {
+      setModalRole('employee');
+      setModalCanApproveLeave(false);
+      setModalCanApproveSupply(false);
+      setModalCanManageEmployees(false);
+      setModalCanManageSettings(false);
+      setModalCanViewArchives(false);
+    } else if (type === 'coadmin') {
+      setModalRole('employee');
+      setModalCanApproveLeave(true);
+      setModalCanApproveSupply(true);
+      setModalCanManageEmployees(true);
+      setModalCanManageSettings(true);
+      setModalCanViewArchives(true);
+    }
+  };
+
+  const handleSavePermissions = () => {
+    if (!selectedPermsAccount) return;
+    if (onUpdateAccount) {
+      onUpdateAccount({
+        ...selectedPermsAccount,
+        role: modalRole,
+        permissions: {
+          canApproveLeave: modalCanApproveLeave,
+          canApproveSupply: modalCanApproveSupply,
+          canManageEmployees: modalCanManageEmployees,
+          canManageSettings: modalCanManageSettings,
+          canViewArchives: modalCanViewArchives
+        }
+      });
+      setUserNotification(`อัปเดตสิทธิ์ผู้ใช้ ${selectedPermsAccount.name} เรียบร้อยแล้ว`);
+      setTimeout(() => setUserNotification(null), 4000);
+    }
+    setSelectedPermsAccount(null);
+  };
 
   // New Account fields
   const [newAccName, setNewAccName] = useState('');
@@ -83,6 +157,17 @@ export default function SettingsSection({
   const [workHoursStart, setWorkHoursStart] = useState(settings.workHoursStart);
   const [workHoursEnd, setWorkHoursEnd] = useState(settings.workHoursEnd);
   const [hasOvertime, setHasOvertime] = useState(settings.hasOvertime);
+  
+  // Login Branding state variables
+  const [loginLogoUrl, setLoginLogoUrl] = useState(settings.loginLogoUrl || '');
+  const [loginTitle, setLoginTitle] = useState(settings.loginTitle || 'OfficeConnect');
+  const [loginSubtitle, setLoginSubtitle] = useState(settings.loginSubtitle || 'ระบบบริหารจัดการและประมวลผลข้อมูลองค์กรแบบเรียลไทม์');
+  const [logoType, setLogoType] = useState<'image' | 'emoji'>(() => {
+    const val = settings.loginLogoUrl || '';
+    if (!val) return 'image';
+    if (val.startsWith('http') || val.startsWith('data:image')) return 'image';
+    return 'emoji';
+  });
   
   // Max leave days
   const [sickMax, setSickMax] = useState(settings.maxLeaveDays.sick);
@@ -239,7 +324,10 @@ export default function SettingsSection({
       },
       hasOvertime,
       menuPermissions,
-      departments: settings.departments
+      departments: settings.departments,
+      loginLogoUrl,
+      loginTitle,
+      loginSubtitle
     });
 
     setSaveSuccess(true);
@@ -331,6 +419,230 @@ export default function SettingsSection({
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none leading-relaxed"
                     id="settings-company-address-input"
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* Section 1.5: Login Screen Branding */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-4" id="settings-branding-section">
+              <h3 className="text-base font-bold text-slate-800 font-sans flex items-center gap-2 pb-2 border-b border-slate-50">
+                <Sparkles className="w-5 h-5 text-indigo-500" />
+                ปรับแต่งภาพลักษณ์หน้าเข้าสู่ระบบ (Login Branding)
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Left Form controls */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">หัวข้อหลักบนหน้า Login *</label>
+                    <input
+                      type="text"
+                      required
+                      value={loginTitle}
+                      onChange={(e) => setLoginTitle(e.target.value)}
+                      placeholder="เช่น OfficeConnect"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">คำบรรยาย / สโลแกนหน้า Login</label>
+                    <input
+                      type="text"
+                      value={loginSubtitle}
+                      onChange={(e) => setLoginSubtitle(e.target.value)}
+                      placeholder="เช่น ระบบสารสนเทศสำหรับออฟฟิศครบวงจร"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-2">ประเภทโลโก้หน้า Login</label>
+                    <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/60 shadow-xs mb-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLogoType('image');
+                          setLoginLogoUrl('');
+                        }}
+                        className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all text-center cursor-pointer ${
+                          logoType === 'image'
+                            ? 'bg-white text-blue-600 shadow-sm'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        รูปภาพโลโก้ (Image)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLogoType('emoji');
+                          setLoginLogoUrl('🏢');
+                        }}
+                        className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all text-center cursor-pointer ${
+                          logoType === 'emoji'
+                            ? 'bg-white text-blue-600 shadow-sm'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        ไอคอนอีโมจิ (Emoji)
+                      </button>
+                    </div>
+
+                    {logoType === 'emoji' ? (
+                      <div className="space-y-3 animate-fadeIn">
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-400 mb-1">ระบุอีโมจิ หรืออักขระที่ต้องการ</label>
+                          <input
+                            type="text"
+                            maxLength={5}
+                            value={loginLogoUrl}
+                            onChange={(e) => setLoginLogoUrl(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-center font-mono text-lg"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-400 mb-1.5">อีโมจิแนะนำยอดนิยม</label>
+                          <div className="flex flex-wrap gap-2 justify-between">
+                            {['🏢', '🚀', '💻', '🔒', '🎯', '⚡', '📊', '🤝', '⚙️', '🌟'].map((em) => (
+                              <button
+                                key={em}
+                                type="button"
+                                onClick={() => setLoginLogoUrl(em)}
+                                className={`w-8 h-8 rounded-lg border text-sm flex items-center justify-center cursor-pointer hover:bg-slate-50 transition ${
+                                  loginLogoUrl === em ? 'border-blue-500 bg-blue-50/50 scale-110 shadow-xs' : 'border-slate-200'
+                                }`}
+                              >
+                                {em}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 animate-fadeIn">
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-400 mb-1">ลิงก์ URL รูปภาพโลโก้</label>
+                          <input
+                            type="text"
+                            value={loginLogoUrl.startsWith('data:') ? '' : loginLogoUrl}
+                            onChange={(e) => setLoginLogoUrl(e.target.value)}
+                            placeholder="https://example.com/logo.png"
+                            className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        
+                        <div className="relative">
+                          <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                            <div className="w-full border-t border-slate-200"></div>
+                          </div>
+                          <div className="relative flex justify-center text-xs">
+                            <span className="px-2 bg-white text-slate-400 text-[10px] font-semibold uppercase">หรือ อัปโหลดจากเครื่อง</span>
+                          </div>
+                        </div>
+
+                        {/* Drag and Drop zone with standard manual trigger click */}
+                        <div
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const file = e.dataTransfer.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onloadend = () => {
+                                if (typeof reader.result === 'string') {
+                                  setLoginLogoUrl(reader.result);
+                                }
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                          className="border-2 border-dashed border-slate-200 hover:border-blue-500 rounded-2xl p-4 transition-colors text-center cursor-pointer group relative bg-slate-50/50 hover:bg-white"
+                        >
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  if (typeof reader.result === 'string') {
+                                    setLoginLogoUrl(reader.result);
+                                  }
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                          />
+                          <div className="flex flex-col items-center justify-center space-y-1">
+                            <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                              <Upload className="w-4 h-4 text-blue-600" />
+                            </div>
+                            <span className="text-xs font-semibold text-slate-600">ลากรูปภาพมาวางที่นี่ หรือ คลิกเพื่ออัปโหลด</span>
+                            <span className="text-[10px] text-slate-400">รองรับไฟล์ภาพ JPG, PNG, WEBP, SVG</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right Interactive Preview */}
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-inner relative overflow-hidden h-[340px]" id="branding-live-preview-box">
+                  {/* Background grid accents */}
+                  <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] opacity-40"></div>
+                  
+                  <div className="relative z-10 text-center space-y-4 my-auto">
+                    <span className="bg-slate-800/80 text-blue-400 text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-full border border-slate-700/60">
+                      พรีวิวหน้าจอจริง (Live Preview)
+                    </span>
+
+                    <div className="flex flex-col items-center space-y-3">
+                      {/* Interactive Logo Rendering */}
+                      {logoType === 'emoji' ? (
+                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-slate-800 to-slate-700 flex items-center justify-center text-3xl shadow-lg border border-slate-700">
+                          {loginLogoUrl || '🏢'}
+                        </div>
+                      ) : loginLogoUrl ? (
+                        <div className="w-16 h-16 rounded-2xl bg-white p-2.5 flex items-center justify-center shadow-lg border border-slate-700 overflow-hidden">
+                          <img 
+                            src={loginLogoUrl} 
+                            alt="Logo Preview" 
+                            className="max-w-full max-h-full object-contain"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                      ) : (
+                        <div className="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center text-white text-2xl font-black shadow-lg">
+                          O
+                        </div>
+                      )}
+
+                      <div className="space-y-1 max-w-[240px] mx-auto">
+                        <h4 className="text-white font-black text-xl tracking-tight leading-none truncate">
+                          {loginTitle || 'OfficeConnect'}
+                        </h4>
+                        <p className="text-[11px] text-slate-400 font-medium leading-normal line-clamp-2">
+                          {loginSubtitle || 'ระบบบริหารจัดการและประมวลผลข้อมูลองค์กรแบบเรียลไทม์'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Mock login fields to make it realistic */}
+                    <div className="space-y-2 max-w-[200px] mx-auto opacity-40 select-none">
+                      <div className="h-7 bg-slate-800 rounded-lg border border-slate-700 text-[9px] text-left px-2 flex items-center text-slate-500">
+                        ชื่อผู้ใช้งาน หรือ อีเมล
+                      </div>
+                      <div className="h-7 bg-slate-950 rounded-lg border border-slate-850 text-[9px] text-left px-2 flex items-center text-slate-500">
+                        รหัสผ่าน
+                      </div>
+                      <div className="h-7 bg-blue-600 rounded-lg text-[9px] font-bold flex items-center justify-center text-white">
+                        เข้าสู่ระบบ
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -801,21 +1113,34 @@ export default function SettingsSection({
 
                           {/* Control actions */}
                           <td className="py-3.5 px-4 text-right">
-                            {isSelf || isMainAdmin ? (
-                              <span className="text-[10px] text-slate-400 font-semibold italic select-none">
-                                {isSelf ? 'บัญชีที่คุณใช้' : 'แอดมินหลัก'}
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteAccountConfirm(acc.email, acc.name)}
-                                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-750 text-xs font-semibold rounded-xl transition cursor-pointer inline-flex items-center gap-1"
-                                title="ลบบัญชีผู้ใช้งานระบบ"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                ลบผู้ใช้
-                              </button>
-                            )}
+                            <div className="flex items-center justify-end gap-2">
+                              {!isMainAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenPermissionsModal(acc)}
+                                  className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-650 hover:text-indigo-800 text-[11px] font-bold rounded-xl transition cursor-pointer inline-flex items-center gap-1"
+                                  title="กำหนดสิทธิ์ตามตำแหน่งและบทบาทหน้าที่"
+                                >
+                                  <Lock className="w-3 h-3" />
+                                  กำหนดสิทธิ์
+                                </button>
+                              )}
+                              {isSelf || isMainAdmin ? (
+                                <span className="text-[10px] text-slate-400 font-semibold italic select-none">
+                                  {isSelf ? 'บัญชีที่คุณใช้' : 'แอดมินหลัก'}
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteAccountConfirm(acc.email, acc.name)}
+                                  className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-750 text-xs font-semibold rounded-xl transition cursor-pointer inline-flex items-center gap-1"
+                                  title="ลบบัญชีผู้ใช้งานระบบ"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  ลบผู้ใช้
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -950,6 +1275,253 @@ export default function SettingsSection({
             </div>
 
           </div>
+        </div>
+      )}
+
+      {/* DETAILED USER PERMISSIONS MODAL */}
+      {selectedPermsAccount && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto" id="user-perms-modal">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-100 overflow-hidden"
+          >
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2">
+                <Lock className="w-5 h-5 text-indigo-600" />
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 font-sans">
+                    ตั้งค่าระดับสิทธิ์ผู้ใช้งานระบบ
+                  </h3>
+                  <p className="text-[11px] text-slate-400">กำหนดสิทธิ์รายบุคคลตามลำดับตำแหน่งและบทบาทหน้าที่</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedPermsAccount(null)}
+                className="text-slate-400 hover:text-slate-600 hover:bg-slate-150 p-1.5 rounded-lg transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Linked Employee Info Card */}
+              <div className="p-4 bg-indigo-50/40 rounded-2xl border border-indigo-100/50 space-y-2">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 border border-indigo-150 px-2 py-0.5 rounded-md">
+                  ข้อมูลบัญชีผู้ใช้งานผู้เชื่อมโยง
+                </span>
+                <div className="flex justify-between items-start gap-4">
+                  <div>
+                    <h4 className="font-bold text-slate-800 text-sm">{selectedPermsAccount.name}</h4>
+                    <p className="text-xs text-slate-500 font-mono mt-0.5">{selectedPermsAccount.email}</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full font-bold">
+                      {selectedPermsAccount.role === 'admin' ? 'บทบาท: แอดมิน (Admin)' : 'บทบาท: พนักงาน (User)'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Resolve matched employee details for "ตามลำดับตำแหน่งและหน้าที่" requirement */}
+                {(() => {
+                  const emp = selectedPermsAccount.employeeId 
+                    ? employees.find(e => e.employeeId === selectedPermsAccount.employeeId)
+                    : null;
+                  if (emp) {
+                    return (
+                      <div className="pt-2 mt-2 border-t border-indigo-100/50 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                        <div>
+                          <span className="text-slate-400 text-[10px]">แผนก/ฝ่ายปฏิบัติงาน:</span>
+                          <p className="font-semibold text-slate-700">{emp.department || '-'}</p>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[10px]">ตำแหน่ง/หน้าที่ความรับผิดชอบ:</span>
+                          <p className="font-semibold text-slate-700">{emp.position || '-'}</p>
+                        </div>
+                      </div>
+                    );
+                  } else {
+                    return (
+                      <p className="text-[11px] text-slate-400 italic pt-1">
+                        * บัญชีอิสระ (ไม่ได้ผูกโยงกับทะเบียนประวัติพนักงานรายบุคคล)
+                      </p>
+                    );
+                  }
+                })()}
+              </div>
+
+              {/* Roles Selector */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-600">บทบาทระบบหลัก (System Role)</label>
+                <select
+                  value={modalRole}
+                  onChange={(e) => {
+                    const r = e.target.value as 'admin' | 'employee';
+                    setModalRole(r);
+                    if (r === 'admin') {
+                      // Admin automatically has all permissions
+                      setModalCanApproveLeave(true);
+                      setModalCanApproveSupply(true);
+                      setModalCanManageEmployees(true);
+                      setModalCanManageSettings(true);
+                      setModalCanViewArchives(true);
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500 font-semibold"
+                >
+                  <option value="employee">ผู้ใช้งานทั่วไป (User) - กำหนดสิทธิ์แยกตามตำแหน่งหน้าที่</option>
+                  <option value="admin">ผู้ดูแลระบบสูงสุด (Admin) - ได้รับสิทธิ์เข้าถึงทุกส่วนอัตโนมัติ</option>
+                </select>
+              </div>
+
+              {modalRole === 'employee' && (
+                <>
+                  {/* Quick templates helper */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-600">เทมเพลตสิทธิ์ด่วน (Quick Templates)</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => applyPermissionTemplate('general')}
+                        className="px-2.5 py-1 text-[10px] font-bold bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-600 transition cursor-pointer"
+                      >
+                        พนักงานทั่วไป (General)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyPermissionTemplate('hr')}
+                        className="px-2.5 py-1 text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 border border-emerald-150 text-emerald-600 transition cursor-pointer"
+                      >
+                        ฝ่ายบุคคล / HR Manager
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyPermissionTemplate('inventory')}
+                        className="px-2.5 py-1 text-[10px] font-bold bg-amber-50 hover:bg-amber-100 border border-amber-150 text-amber-600 transition cursor-pointer"
+                      >
+                        ผู้จัดการคลัง / Supply Manager
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyPermissionTemplate('coadmin')}
+                        className="px-2.5 py-1 text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 border border-indigo-150 text-indigo-600 transition cursor-pointer"
+                      >
+                        แอดมินร่วม / Co-Admin
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Granular permissions switches */}
+                  <div className="space-y-3 pt-2">
+                    <label className="block text-xs font-bold text-slate-600 border-b border-slate-100 pb-1">
+                      สิทธิ์การใช้งานและการดำเนินการย่อย (Granular Permissions)
+                    </label>
+
+                    {/* Can approve leaves */}
+                    <div className="flex items-center justify-between p-2.5 bg-slate-50/60 rounded-xl border border-slate-100">
+                      <div>
+                        <span className="text-xs font-bold text-slate-700 block">อนุมัติคำขอลางานพนักงาน</span>
+                        <span className="text-[10px] text-slate-400">อนุญาตให้กดยืนยัน อนุมัติ หรือปฏิเสธใบคำลาของพนักงานรายอื่น</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={modalCanApproveLeave}
+                        onChange={(e) => setModalCanApproveLeave(e.target.checked)}
+                        className="w-4 h-4 text-indigo-600 border-slate-200 rounded focus:ring-indigo-500 cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Can approve supplies */}
+                    <div className="flex items-center justify-between p-2.5 bg-slate-50/60 rounded-xl border border-slate-100">
+                      <div>
+                        <span className="text-xs font-bold text-slate-700 block">อนุมัติจ่ายพัสดุและเบิกสิ่งของ</span>
+                        <span className="text-[10px] text-slate-400">อนุญาตให้ลงรายการอนุมัติปล่อยจ่ายเครื่องเขียนและของใช้ออฟฟิศ</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={modalCanApproveSupply}
+                        onChange={(e) => setModalCanApproveSupply(e.target.checked)}
+                        className="w-4 h-4 text-indigo-600 border-slate-200 rounded focus:ring-indigo-500 cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Can manage employees */}
+                    <div className="flex items-center justify-between p-2.5 bg-slate-50/60 rounded-xl border border-slate-100">
+                      <div>
+                        <span className="text-xs font-bold text-slate-700 block">จัดการและแก้ไขทะเบียนพนักงาน</span>
+                        <span className="text-[10px] text-slate-400">อนุญาตให้เพิ่ม ลบ หรือแก้ไขประวัติส่วนตัว/เงินเดือนของบุคลากรในบริษัท</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={modalCanManageEmployees}
+                        onChange={(e) => setModalCanManageEmployees(e.target.checked)}
+                        className="w-4 h-4 text-indigo-600 border-slate-200 rounded focus:ring-indigo-500 cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Can manage settings */}
+                    <div className="flex items-center justify-between p-2.5 bg-slate-50/60 rounded-xl border border-slate-100">
+                      <div>
+                        <span className="text-xs font-bold text-slate-700 block">จัดการตั้งค่าระบบและบริษัท</span>
+                        <span className="text-[10px] text-slate-400">อนุญาตให้แก้ไขชั่วโมงเวลาทำงาน วันหยุด หรือสิทธิ์การเข้าถึงภาพรวม</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={modalCanManageSettings}
+                        onChange={(e) => setModalCanManageSettings(e.target.checked)}
+                        className="w-4 h-4 text-indigo-600 border-slate-200 rounded focus:ring-indigo-500 cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Can view archives */}
+                    <div className="flex items-center justify-between p-2.5 bg-slate-50/60 rounded-xl border border-slate-100">
+                      <div>
+                        <span className="text-xs font-bold text-slate-700 block">เรียกดูสถิติและประวัติรายงานย้อนหลัง</span>
+                        <span className="text-[10px] text-slate-400">อนุญาตให้เปิดดูสรุปบัญชี คลังจัดเก็บ และประวัติพนักงานที่ลาออกแล้ว</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={modalCanViewArchives}
+                        onChange={(e) => setModalCanViewArchives(e.target.checked)}
+                        className="w-4 h-4 text-indigo-600 border-slate-200 rounded focus:ring-indigo-500 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {modalRole === 'admin' && (
+                <div className="p-4 bg-amber-50 rounded-xl border border-amber-150 text-xs text-amber-700 leading-relaxed font-semibold flex items-start gap-2">
+                  <span className="text-base">⚠️</span>
+                  <span>
+                    เมื่อตั้งค่าเป็นผู้ดูแลระบบหลัก (Admin) บัญชีนี้จะได้รับสิทธิ์ในการอนุมัติใบลา, สั่งจ่ายพัสดุ, แก้ไขทะเบียนข้อมูลพนักงาน, เข้าถึงการตั้งค่า และดูคลังรายงานย้อนหลังทั้งหมดโดยอัตโนมัติ ไม่จำเป็นต้องทำรายการติ๊กเลือกแยกย่อย
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setSelectedPermsAccount(null)}
+                className="px-4 py-2 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold rounded-xl transition cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePermissions}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-100 transition cursor-pointer flex items-center gap-1.5"
+              >
+                <Save className="w-3.5 h-3.5" />
+                บันทึกการตั้งค่าสิทธิ์
+              </button>
+            </div>
+          </motion.div>
         </div>
       )}
     </div>

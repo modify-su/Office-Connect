@@ -97,7 +97,7 @@ export default function Dashboard({
     ...baseLeaves.map(l => ({
       id: l.id,
       type: 'leave',
-      title: `ยื่นคำขอลา (${l.leaveType === 'sick' ? 'ลาป่วย' : l.leaveType === 'annual' ? 'ลาพักร้อน' : 'ลากิจ'})`,
+      title: `ยื่นคำขอลา (${l.leaveType === 'sick' ? 'ลาป่วย' : l.leaveType === 'annual' ? 'ลาพักร้อน' : l.leaveType === 'swap' ? 'ขอสลับวันหยุด' : 'ลากิจ'})`,
       user: l.employeeName || 'ไม่ระบุชื่อ',
       status: l.status,
       date: l.startDate || '',

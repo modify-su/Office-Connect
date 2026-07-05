@@ -60,6 +60,7 @@ export default function SupplySection({
   currentUser
 }: SupplySectionProps) {
   const isEmployee = currentUser?.role === 'employee';
+  const isEmployeeOnly = isEmployee && !currentUser?.permissions?.canApproveSupply;
 
   // Navigation tabs inside supply section: 'inventory' VS 'requests'
   const [subTab, setSubTab] = useState<'inventory' | 'requests'>('inventory');
@@ -498,10 +499,10 @@ export default function SupplySection({
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-800 font-sans flex items-center gap-2">
             <Package className="w-6 h-6 text-blue-600" />
-            {isEmployee ? 'รายการพัสดุเบิกจ่ายและใบเบิกของฉัน' : 'ระบบคลังเบิกจ่ายและจัดการพัสดุส่วนกลาง'}
+            {isEmployeeOnly ? 'รายการพัสดุเบิกจ่ายและใบเบิกของฉัน' : 'ระบบคลังเบิกจ่ายและจัดการพัสดุส่วนกลาง'}
           </h2>
           <p className="text-sm text-slate-500">
-            {isEmployee ? 'ค้นหาวัสดุอุปกรณ์สำนักงานที่ให้บริการ ส่งใบขอเบิกพัสดุ และตรวจสอบสถานะรายการของคุณ' : 'จัดการข้อมูลอุปกรณ์สำนักงาน ค้นหาสินค้า และอนุมัติใบรับพัสดุของพนักงาน'}
+            {isEmployeeOnly ? 'ค้นหาวัสดุอุปกรณ์สำนักงานที่ให้บริการ ส่งใบขอเบิกพัสดุ และตรวจสอบสถานะรายการของคุณ' : 'จัดการข้อมูลอุปกรณ์สำนักงาน ค้นหาสินค้า และอนุมัติใบรับพัสดุของพนักงาน'}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -519,7 +520,7 @@ export default function SupplySection({
             <QrCode className="w-4 h-4" />
             สแกน QR Code (รับเข้า/เบิก)
           </button>
-          {!isEmployee && (
+          {!isEmployeeOnly && (
             <button
               onClick={handleOpenAddItemModal}
               className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white font-semibold px-4 py-2.5 rounded-xl text-sm shadow transition cursor-pointer"
@@ -709,7 +710,7 @@ export default function SupplySection({
       ) : (
         /* ================= REQUESTS LIST TAB ================= */
         <div className="bg-white rounded-xl shadow border border-slate-100 overflow-hidden" id="subtab-requests-content">
-          <div className="overflow-x-auto">
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50/75 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
@@ -724,7 +725,7 @@ export default function SupplySection({
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
                 {(() => {
-                  const myRequests = isEmployee 
+                  const myRequests = isEmployeeOnly 
                     ? supplyRequests.filter(r => r.employeeId === currentUser?.employeeId) 
                     : supplyRequests;
                   if (myRequests.length > 0) {
@@ -766,7 +767,7 @@ export default function SupplySection({
                             {req.status === 'approved' ? 'จ่ายครบถ้วน' : req.status === 'pending' ? 'รอคำสั่งจ่าย' : 'ใบคำขอกลับคืน'}
                           </span>
                         </td>
-                        {!isEmployee && (
+                        {!isEmployeeOnly && (
                           <td className="px-6 py-4 whitespace-nowrap text-center">
                             {req.status === 'pending' ? (
                               <div className="flex items-center justify-center gap-2">
@@ -797,8 +798,8 @@ export default function SupplySection({
                 } else {
                   return (
                     <tr>
-                      <td colSpan={isEmployee ? 6 : 7} className="px-6 py-12 text-center text-slate-400">
-                        {isEmployee ? 'คุณยังไม่มีประวัติส่งคำขอเบิกพัสดุส่วนตัวในระบบ' : 'ไม่พบประวัติใบจ่ายคืนใบเบิกพัสดุของพนักงานใดๆ'}
+                      <td colSpan={isEmployeeOnly ? 6 : 7} className="px-6 py-12 text-center text-slate-400">
+                        {isEmployeeOnly ? 'คุณยังไม่มีประวัติส่งคำขอเบิกพัสดุส่วนตัวในระบบ' : 'ไม่พบประวัติใบจ่ายคืนใบเบิกพัสดุของพนักงานใดๆ'}
                       </td>
                     </tr>
                   );
@@ -806,6 +807,85 @@ export default function SupplySection({
               })()}
               </tbody>
             </table>
+          </div>
+
+          {/* Card representation for Mobile */}
+          <div className="block md:hidden divide-y divide-slate-100" id="supply-requests-display-cards-container">
+            {(() => {
+              const myRequests = isEmployeeOnly 
+                ? supplyRequests.filter(r => r.employeeId === currentUser?.employeeId) 
+                : supplyRequests;
+              if (myRequests.length > 0) {
+                return myRequests.map(req => (
+                  <div key={req.id} className="p-4 bg-white flex flex-col gap-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-xs text-slate-600">
+                          <User className="w-4 h-4 text-slate-400" />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-800 text-xs leading-none">{req.employeeName}</p>
+                          <p className="text-[10px] font-mono font-medium text-slate-400 mt-1">{req.employeeId}</p>
+                        </div>
+                      </div>
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                        req.status === 'approved'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                          : req.status === 'pending'
+                          ? 'bg-amber-50 text-amber-700 border-amber-100'
+                          : 'bg-rose-50 text-rose-700 border border-rose-100'
+                      }`}>
+                        {req.status === 'approved' ? 'จ่ายพัสดุแล้ว' : req.status === 'pending' ? 'รอคำสั่งจ่าย' : 'ปฏิเสธคำเบิก'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">พัสดุอุปกรณ์</span>
+                        <p className="font-bold text-slate-800 mt-0.5">{req.itemName}</p>
+                        <p className="text-xs text-slate-500 font-mono mt-1 font-semibold">จำนวน: <span className="text-indigo-600 font-extrabold">{req.quantity}</span> รายการ</p>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">วันที่ส่งคำขอ</span>
+                        <p className="font-mono font-semibold text-slate-700 mt-0.5">{req.createdAt}</p>
+                      </div>
+                    </div>
+
+                    {req.purpose && (
+                      <div className="text-xs text-slate-500 leading-relaxed bg-slate-50/50 p-2.5 rounded-xl border border-slate-100/50">
+                        <span className="font-bold text-slate-600">จุดประสงค์ใช้งาน:</span>
+                        <p className="mt-0.5">"{req.purpose}"</p>
+                      </div>
+                    )}
+
+                    {!isEmployeeOnly && req.status === 'pending' && (
+                      <div className="flex items-center gap-2 pt-1" id={`supply-actions-${req.id}`}>
+                        <button
+                          onClick={() => setActingSupplyReq({ id: req.id, action: 'approve' })}
+                          className="flex-1 flex items-center justify-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 rounded-xl transition cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>อนุมัติสั่งจ่าย</span>
+                        </button>
+                        <button
+                          onClick={() => setActingSupplyReq({ id: req.id, action: 'reject' })}
+                          className="flex-1 flex items-center justify-center gap-1 bg-white hover:bg-slate-50 text-rose-600 border border-rose-200 text-xs font-bold py-2 rounded-xl transition cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>ปฏิเสธ</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ));
+              } else {
+                return (
+                  <div className="p-8 text-center text-slate-400 text-xs">
+                    {isEmployeeOnly ? 'คุณยังไม่มีประวัติส่งคำขอเบิกพัสดุส่วนตัวในระบบ' : 'ไม่พบประวัติใบจ่ายคืนใบเบิกพัสดุของพนักงานใดๆ'}
+                  </div>
+                );
+              }
+            })()}
           </div>
         </div>
       )}

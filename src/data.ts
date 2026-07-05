@@ -36,7 +36,10 @@ export const defaultSettings: SystemSettings = {
     'ฝ่ายขายและการตลาด',
     'บัญชีและการเงิน',
     'ฝ่ายบริหารองค์กร'
-  ]
+  ],
+  loginLogoUrl: '',
+  loginTitle: 'OfficeConnect',
+  loginSubtitle: 'ระบบบริหารจัดการและประมวลผลข้อมูลองค์กรแบบเรียลไทม์'
 };
 
 export const initialAccounts: UserAccount[] = [

@@ -2091,8 +2091,8 @@ export default function AttendanceSection({
           </div>
         </div>
 
-        {/* Interactive Log Table */}
-        <div className="overflow-x-auto">
+        {/* Interactive Log Table (Tablet & Desktop) */}
+        <div className="hidden md:block overflow-x-auto">
           {filteredRecords.length === 0 ? (
             <div className="py-12 text-center">
               <AlertCircle className="w-10 h-10 text-slate-300 mx-auto" />
@@ -2185,6 +2185,75 @@ export default function AttendanceSection({
                 })}
               </tbody>
             </table>
+          )}
+        </div>
+
+        {/* Interactive Log Cards (Mobile Devices) */}
+        <div className="block md:hidden" id="attendance-display-cards-container">
+          {filteredRecords.length === 0 ? (
+            <div className="py-12 text-center p-5">
+              <AlertCircle className="w-10 h-10 text-slate-300 mx-auto" />
+              <p className="text-slate-500 font-bold text-sm mt-3">ไม่พบรายการบันทึกเวลาตามตัวกรองปัจจุบัน</p>
+              <p className="text-slate-400 text-xs mt-1">ลองเปลี่ยนเงื่อนไขค้นหา หรือลงเวลาทำงานใหม่เพื่อแสดงในตาราง</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100" id="attendance-logs-cards">
+              {paginatedRecords.map((rec) => (
+                <div key={rec.id} className="p-4 bg-white hover:bg-slate-50/50 transition space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-1">
+                      <p className="font-bold text-slate-800 text-sm leading-tight">{rec.employeeName}</p>
+                      <p className="text-xs font-mono font-medium text-slate-400">{rec.employeeId}</p>
+                    </div>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${getAttendanceTypeBadgeStyle(rec.type)}`}>
+                      {getAttendanceTypeLabel(rec.type)}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-xs text-slate-600">
+                    <div>
+                      <p className="text-slate-400 text-[9px] uppercase font-bold tracking-wider mb-0.5">วันและเวลาที่บันทึก</p>
+                      <p className="font-mono font-bold text-slate-800 flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                        {rec.date}
+                      </p>
+                      <p className="font-mono font-bold text-indigo-600 mt-1 flex items-center gap-1 text-sm">
+                        <Clock className="w-3.5 h-3.5" />
+                        {rec.time}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 text-[9px] uppercase font-bold tracking-wider mb-0.5">ชั่วโมง OT / บันทึกโดย</p>
+                      <p className="font-extrabold text-purple-700 font-mono text-xs mt-0.5">{rec.otHours ? `${rec.otHours} ชม.` : '-'}</p>
+                      <p className="text-[10px] text-slate-400 mt-1.5 font-mono truncate">โดย: {rec.recordedBy.split('@')[0]}</p>
+                    </div>
+                  </div>
+
+                  {rec.notes && (
+                    <div className="bg-slate-50 border border-slate-100 p-2.5 rounded-xl text-xs text-slate-500 italic">
+                      <span className="font-bold text-slate-600 mb-0.5 block not-italic">หมายเหตุ:</span>
+                      "{rec.notes}"
+                    </div>
+                  )}
+
+                  {!isEmployee && onDeleteAttendance && (
+                    <div className="flex justify-end pt-1">
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`คุณต้องการลบรายการบันทึกเวลาของ ${rec.employeeName} ในวันที่ ${rec.date} นี้ใช่หรือไม่?`)) {
+                            onDeleteAttendance && onDeleteAttendance(rec.id);
+                          }
+                        }}
+                        className="flex items-center gap-1 text-xs text-rose-600 hover:bg-rose-50 px-3 py-1.5 rounded-xl transition font-semibold"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>ลบบันทึกที่คลาดเคลื่อน</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </div>
 

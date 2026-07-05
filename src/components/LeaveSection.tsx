@@ -15,7 +15,8 @@ import {
   Check,
   X,
   PlusCircle,
-  Hash
+  Hash,
+  ArrowLeftRight
 } from 'lucide-react';
 import { LeaveRequest, LeaveType, LeaveStatus, Employee, UserAccount } from '../types';
 
@@ -63,6 +64,7 @@ export default function LeaveSection({
   currentUser
 }: LeaveSectionProps) {
   const isEmployee = currentUser?.role === 'employee';
+  const isEmployeeOnly = isEmployee && !currentUser?.permissions?.canApproveLeave;
 
   // State variables
   const [activeSubTab, setActiveSubTab] = useState<'my_leaves' | 'public_holidays'>('my_leaves');
@@ -79,6 +81,8 @@ export default function LeaveSection({
   const [formEndDate, setFormEndDate] = useState('');
   const [formDays, setFormDays] = useState(1);
   const [formReason, setFormReason] = useState('');
+  const [formSwapFromDate, setFormSwapFromDate] = useState('');
+  const [formSwapToDate, setFormSwapToDate] = useState('');
 
   useEffect(() => {
     if (defaultAddOpen) {
@@ -102,6 +106,8 @@ export default function LeaveSection({
     setFormEndDate(today);
     setFormDays(1);
     setFormReason('');
+    setFormSwapFromDate(today);
+    setFormSwapToDate(today);
     setIsRequestModalOpen(true);
   };
 
@@ -130,7 +136,8 @@ export default function LeaveSection({
       alert('กรุณาเลือกพนักงานผู้ส่งคำขอ');
       return;
     }
-    if (formDays <= 0) {
+    
+    if (formLeaveType !== 'swap' && formDays <= 0) {
       alert('จำนวนวันลาต้องมากกว่า 0 วัน');
       return;
     }
@@ -141,16 +148,22 @@ export default function LeaveSection({
       return;
     }
 
-    onAddLeaveRequest({
+    const payload = {
       employeeId: formEmployeeId,
       employeeName: `${matchedEmployee.firstName} ${matchedEmployee.lastName}`,
       leaveType: formLeaveType,
-      startDate: formStartDate,
-      endDate: formEndDate,
-      days: formDays,
+      startDate: formLeaveType === 'swap' ? formSwapToDate : formStartDate,
+      endDate: formLeaveType === 'swap' ? formSwapToDate : formEndDate,
+      days: formLeaveType === 'swap' ? 1 : formDays,
       reason: formReason,
-      status: 'pending'
-    });
+      status: 'pending' as LeaveStatus,
+      ...(formLeaveType === 'swap' ? {
+        swapFromDate: formSwapFromDate,
+        swapToDate: formSwapToDate
+      } : {})
+    };
+
+    onAddLeaveRequest(payload);
 
     setIsRequestModalOpen(false);
   };
@@ -162,6 +175,7 @@ export default function LeaveSection({
       case 'annual': return 'ลาพักร้อน';
       case 'personal': return 'ลากิจส่วนตัว';
       case 'maternity': return 'ลาเพื่อการคลอดบุตร';
+      case 'swap': return 'สลับวันหยุด';
       default: return 'ลาประเภทอื่น ๆ';
     }
   };
@@ -172,12 +186,13 @@ export default function LeaveSection({
       case 'annual': return 'bg-sky-50 text-sky-700 border border-sky-100';
       case 'personal': return 'bg-amber-50 text-amber-700 border border-amber-100';
       case 'maternity': return 'bg-purple-50 text-purple-700 border border-purple-100';
+      case 'swap': return 'bg-indigo-50 text-indigo-700 border border-indigo-100';
       default: return 'bg-slate-50 text-slate-700 border border-slate-100';
     }
   };
 
   // Statistics counters
-  const myLeaves = isEmployee ? leaveRequests.filter(l => l.employeeId === currentUser?.employeeId) : leaveRequests;
+  const myLeaves = isEmployeeOnly ? leaveRequests.filter(l => l.employeeId === currentUser?.employeeId) : leaveRequests;
 
   const totalApplied = myLeaves.length;
   const pendingCount = myLeaves.filter(l => l.status === 'pending').length;
@@ -204,10 +219,10 @@ export default function LeaveSection({
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-800 font-sans flex items-center gap-2">
             <CalendarDays className="w-6 h-6 text-blue-600" />
-            {isEmployee ? 'ประวัติและการขอลางานส่วนตัว' : 'ระบบสิทธิและการขอลากิจพนักงาน (Leaves Tracking)'}
+            {isEmployeeOnly ? 'ประวัติและการขอลางานส่วนตัว' : 'ระบบสิทธิและการขอลากิจพนักงาน (Leaves Tracking)'}
           </h2>
           <p className="text-sm text-slate-500">
-            {isEmployee ? 'ยื่นใบคำขอลากิจส่วนบุคคล ตรวจสอบสิทธิวันหยุดคงเหลือ และประวัติย้อนหลัง' : 'ตรวจสอบโควตา อนุมัติวันหยุด และตรวจสอบตารางลางานของพนักงาน'}
+            {isEmployeeOnly ? 'ยื่นใบคำขอลากิจส่วนบุคคล ตรวจสอบสิทธิวันหยุดคงเหลือ และประวัติย้อนหลัง' : 'ตรวจสอบโควตา อนุมัติวันหยุด และตรวจสอบตารางลางานของพนักงาน'}
           </p>
         </div>
         <button
@@ -217,7 +232,7 @@ export default function LeaveSection({
           id="btn-add-leave-request"
         >
           <PlusCircle className="w-4 h-4" />
-          {isEmployee ? 'สร้างใบคำขอลากิจใหม่' : 'เขียนใบลาพนักงานรายบุคคล'}
+          {isEmployeeOnly ? 'สร้างใบคำขอลากิจใหม่' : 'เขียนใบลาพนักงานรายบุคคล'}
         </button>
       </div>
 
@@ -232,7 +247,7 @@ export default function LeaveSection({
           }`}
         >
           <CalendarDays className="w-3.5 h-3.5" />
-          {isEmployee ? 'วันลาและประวัติของฉัน' : 'ประวัติคำขอลาพนักงาน'}
+          {isEmployeeOnly ? 'วันลาและประวัติของฉัน' : 'ประวัติคำขอลาพนักงาน'}
         </button>
         <button
           onClick={() => setActiveSubTab('public_holidays')}
@@ -320,6 +335,7 @@ export default function LeaveSection({
                 <option value="annual">ลาพักร้อน</option>
                 <option value="personal">ลากิจส่วนตัว</option>
                 <option value="maternity">ลาคลอด</option>
+                <option value="swap">ขอสลับวันหยุด</option>
               </select>
             </div>
 
@@ -368,15 +384,33 @@ export default function LeaveSection({
                           </span>
                         </div>
                         {/* Date segment */}
-                        <p className="text-xs md:text-sm font-semibold text-slate-500 flex items-center gap-1.5 flex-wrap">
-                          <span>ระยะเวลา: </span>
-                          <span className="font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{req.startDate}</span>
-                          <span>ถึง</span>
-                          <span className="font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{req.endDate}</span>
-                          <span className="text-blue-600 bg-blue-50 border border-blue-100 px-2 rounded-full font-bold">
-                            รวม {req.days} วันทำการ
-                          </span>
-                        </p>
+                        {req.leaveType === 'swap' ? (
+                          <div className="text-xs md:text-sm font-semibold text-slate-500 flex flex-col gap-1">
+                            <p className="flex items-center gap-1 text-indigo-600 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-xl w-fit">
+                              <ArrowLeftRight className="w-3.5 h-3.5" />
+                              <span>ขอลดวันหยุดเดิมสลับไปทำงาน และพักชดเชยทดแทน</span>
+                            </p>
+                            <div className="flex items-center gap-2 mt-1 flex-wrap text-slate-700 font-mono">
+                              <span className="bg-slate-50 border border-slate-200/60 px-2 py-0.5 rounded">
+                                📅 สลับมาทำงาน: <strong className="text-indigo-600">{req.swapFromDate}</strong>
+                              </span>
+                              <span className="text-slate-400">⇆</span>
+                              <span className="bg-slate-50 border border-slate-200/60 px-2 py-0.5 rounded">
+                                🏖️ เปลี่ยนไปหยุดชดเชย: <strong className="text-emerald-600">{req.swapToDate}</strong>
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-xs md:text-sm font-semibold text-slate-500 flex items-center gap-1.5 flex-wrap">
+                            <span>ระยะเวลา: </span>
+                            <span className="font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{req.startDate}</span>
+                            <span>ถึง</span>
+                            <span className="font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{req.endDate}</span>
+                            <span className="text-blue-600 bg-blue-50 border border-blue-100 px-2 rounded-full font-bold">
+                              รวม {req.days} วันทำการ
+                            </span>
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -400,7 +434,7 @@ export default function LeaveSection({
                       </div>
 
                       {/* Actions buttons */}
-                      {req.status === 'pending' && !isEmployee && (
+                      {req.status === 'pending' && !isEmployeeOnly && (
                         <div className="flex items-center gap-2 w-full sm:w-auto" id={`leave-actions-${req.id}`}>
                           <button
                             onClick={() => setActingLeaveReq({ id: req.id, employeeName: req.employeeName, action: 'approve' })}
@@ -446,7 +480,8 @@ export default function LeaveSection({
               อ้างอิงประกาศวันหยุดราชการและข้อกำหนดวันหยุดประเพณีของบริษัท
             </p>
           </div>
-          <div className="overflow-x-auto">
+          {/* Public Holidays (Tablet & Desktop) */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase bg-slate-50/40">
@@ -481,6 +516,31 @@ export default function LeaveSection({
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Public Holidays (Mobile Devices) */}
+          <div className="block md:hidden divide-y divide-slate-100">
+            {THAI_PUBLIC_HOLIDAYS.map((h, i) => (
+              <div key={i} className="p-4 bg-white flex flex-col gap-1.5">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-xs font-mono font-semibold text-slate-500">
+                    {new Date(h.date).toLocaleDateString('th-TH', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    })}
+                  </span>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+                    h.type === 'public'
+                      ? 'bg-amber-50 text-amber-700 border-amber-100'
+                      : 'bg-indigo-50 text-indigo-700 border-indigo-100'
+                  }`}>
+                    {h.type === 'public' ? 'นักขัตฤกษ์' : 'วันหยุดบริษัท'}
+                  </span>
+                </div>
+                <h4 className="font-bold text-slate-800 text-xs leading-snug">{h.name}</h4>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -544,44 +604,84 @@ export default function LeaveSection({
                   <option value="sick">ลาป่วยทางการแพทย์</option>
                   <option value="personal">ลากิจส่วนตัว</option>
                   <option value="maternity">ลาคลอดบุตร</option>
+                  <option value="swap">ขอสลับวันหยุดประจำสัปดาห์ / วันหยุดชดเชย</option>
                   <option value="other">ลาอื่นๆ</option>
                 </select>
               </div>
 
-              {/* Start Date, End date */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">ตั้งแต่วันที่ *</label>
-                  <input
-                    type="date"
-                    required
-                    value={formStartDate}
-                    onChange={(e) => handleDateChange(e.target.value, formEndDate)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+              {/* Start Date, End date OR Swap Dates */}
+              {formLeaveType !== 'swap' ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">ตั้งแต่วันที่ *</label>
+                    <input
+                      type="date"
+                      required
+                      value={formStartDate}
+                      onChange={(e) => handleDateChange(e.target.value, formEndDate)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">ถึงวันที่ *</label>
+                    <input
+                      type="date"
+                      required
+                      value={formEndDate}
+                      onChange={(e) => handleDateChange(formStartDate, e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">ถึงวันที่ *</label>
-                  <input
-                    type="date"
-                    required
-                    value={formEndDate}
-                    onChange={(e) => handleDateChange(formStartDate, e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+              ) : (
+                <div className="grid grid-cols-2 gap-4 p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50">
+                  <div>
+                    <label className="block text-xs font-bold text-indigo-700 mb-1">วันหยุดเดิมที่สลับมาทำงาน *</label>
+                    <input
+                      type="date"
+                      required
+                      value={formSwapFromDate}
+                      onChange={(e) => setFormSwapFromDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-indigo-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">วันที่ต้องการปฏิบัติงานแทน</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-indigo-700 mb-1">วันทำงานเดิมที่สลับไปหยุด *</label>
+                    <input
+                      type="date"
+                      required
+                      value={formSwapToDate}
+                      onChange={(e) => setFormSwapToDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-indigo-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">วันที่ขอสลับเป็นวันหยุดพักผ่อน</p>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Computed Days display */}
-              <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 flex items-center justify-between text-xs md:text-sm">
-                <span className="text-slate-500 font-semibold flex items-center gap-1.5">
-                  <Hash className="w-4 h-4 text-blue-500" />
-                  จำนวนวันลาคำนวณอัตโนมัติ:
-                </span>
-                <span className="text-lg font-bold text-blue-700">
-                  {formDays} วัน
-                </span>
-              </div>
+              {formLeaveType !== 'swap' ? (
+                <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 flex items-center justify-between text-xs md:text-sm">
+                  <span className="text-slate-500 font-semibold flex items-center gap-1.5">
+                    <Hash className="w-4 h-4 text-blue-500" />
+                    จำนวนวันลาคำนวณอัตโนมัติ:
+                  </span>
+                  <span className="text-lg font-bold text-blue-700">
+                    {formDays} วัน
+                  </span>
+                </div>
+              ) : (
+                <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 flex items-center justify-between text-xs md:text-sm">
+                  <span className="text-slate-500 font-semibold flex items-center gap-1.5">
+                    <ArrowLeftRight className="w-4 h-4 text-indigo-500" />
+                    จำนวนวันสลับวันหยุด:
+                  </span>
+                  <span className="text-lg font-bold text-indigo-700">
+                    1 วัน
+                  </span>
+                </div>
+              )}
 
               {/* Reason */}
               <div>

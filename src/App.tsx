@@ -29,7 +29,7 @@ import {
 import { Employee, LeaveRequest, SupplyItem, SupplyRequest, SystemSettings, UserAccount, ArchiveRecord, AttendanceRecord } from './types';
 import { getStoredData, saveStoredData, initialEmployees, initialLeaveRequests, initialSupplyItems, initialSupplyRequests, defaultSettings, initialAttendanceRecords } from './data';
 import { collection, onSnapshot, doc } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, handleFirestoreError, OperationType } from './firebase';
 import { 
   seedFirestoreIfEmpty,
   saveEmployeeCloud,
@@ -213,6 +213,8 @@ export default function App() {
         setEmployees(list);
         saveStoredData({ employees: list });
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'employees');
     });
 
     // Sync Leave Requests
@@ -225,6 +227,8 @@ export default function App() {
       list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setLeaveRequests(list);
       saveStoredData({ leaveRequests: list });
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'leaveRequests');
     });
 
     // Sync Supply Items
@@ -236,6 +240,8 @@ export default function App() {
       list.sort((a, b) => a.code.localeCompare(b.code));
       setSupplyItems(list);
       saveStoredData({ supplyItems: list });
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'supplyItems');
     });
 
     // Sync Supply Requests
@@ -247,6 +253,8 @@ export default function App() {
       list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setSupplyRequests(list);
       saveStoredData({ supplyRequests: list });
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'supplyRequests');
     });
 
     // Sync User Accounts
@@ -259,6 +267,8 @@ export default function App() {
         setAccounts(list);
         saveStoredData({ accounts: list });
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'accounts');
     });
 
     // Sync Settings
@@ -268,6 +278,8 @@ export default function App() {
         setSettings(val);
         saveStoredData({ settings: val });
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'settings/system');
     });
 
     // Sync Archives
@@ -279,6 +291,8 @@ export default function App() {
       list.sort((a, b) => new Date(b.archivedAt).getTime() - new Date(a.archivedAt).getTime());
       setArchives(list);
       saveStoredData({ archives: list });
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'archives');
     });
 
     // Sync Attendance Records
@@ -295,6 +309,8 @@ export default function App() {
       setAttendanceRecords(list);
       saveStoredData({ attendanceRecords: list });
       setIsCloudSyncing(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'attendanceRecords');
     });
 
     return () => {
@@ -769,6 +785,28 @@ export default function App() {
     deleteAccountCloud(email);
   };
 
+  const handleUpdateAccount = (updatedAcc: UserAccount) => {
+    const updatedAccountsList = accounts.map(acc => {
+      if (acc.email.toLowerCase() === updatedAcc.email.toLowerCase().trim()) {
+        saveAccountCloud(updatedAcc);
+        return updatedAcc;
+      }
+      return acc;
+    });
+    setAccounts(updatedAccountsList);
+    saveStoredData({
+      accounts: updatedAccountsList
+    });
+    
+    // Also update currentUser in state if it is the updated account
+    if (currentUser && currentUser.email.toLowerCase() === updatedAcc.email.toLowerCase().trim()) {
+      setCurrentUser(updatedAcc);
+      localStorage.setItem('office_session', JSON.stringify(updatedAcc));
+    }
+    
+    triggerToast(`อัปเดตสิทธิ์ผู้ใช้งาน "${updatedAcc.name}" เรียบร้อยแล้ว`);
+  };
+
   const handleAddArchive = (newArch: ArchiveRecord) => {
     const nextList = [newArch, ...archives];
     setArchives(nextList);
@@ -859,7 +897,16 @@ export default function App() {
   const checkTabPermission = (tabId: string) => {
     if (!currentUser) return false;
     if (currentUser.role === 'admin') return true;
-    if (tabId === 'backup' || tabId === 'settings') return false;
+    if (tabId === 'backup') return false;
+    if (tabId === 'settings') {
+      return !!currentUser.permissions?.canManageSettings;
+    }
+    // Check custom permissions first
+    if (tabId === 'employees' && currentUser.permissions?.canManageEmployees) return true;
+    if (tabId === 'leaves' && currentUser.permissions?.canApproveLeave) return true;
+    if (tabId === 'supplies' && currentUser.permissions?.canApproveSupply) return true;
+    if (tabId === 'archives' && currentUser.permissions?.canViewArchives) return true;
+
     if (tabId === 'employees' && currentUser.role === 'employee') return true;
     const perm = settings.menuPermissions?.[tabId] ?? (
       (tabId === 'employees' || tabId === 'archives') ? 'admin_only' : 'all'
@@ -870,17 +917,24 @@ export default function App() {
   // Nav items configuration
   const navigationItems = [
     { id: 'dashboard', label: 'ภาพรวมระบบ', icon: LayoutDashboard },
-    { id: 'employees', label: currentUser?.role === 'employee' ? 'ประวัติส่วนตัว' : 'ข้อมูลพนักงาน', icon: Users },
+    { id: 'employees', label: (currentUser?.role === 'employee' && !currentUser?.permissions?.canManageEmployees) ? 'ประวัติส่วนตัว' : 'ข้อมูลพนักงาน', icon: Users },
     { id: 'leaves', label: 'การลางาน', icon: CalendarDays },
     { id: 'attendance', label: 'ระบบลงเวลาทำงาน', icon: Clock },
     { id: 'supplies', label: 'เบิกจ่ายพัสดุ', icon: Package },
     { id: 'documents', label: 'แฟ้มเอกสาร', icon: FolderClosed },
-    currentUser?.role === 'admin' && { id: 'settings', label: 'ตั้งค่าระบบ', icon: SettingsIcon },
+    (currentUser?.role === 'admin' || currentUser?.permissions?.canManageSettings) && { id: 'settings', label: 'ตั้งค่าระบบ', icon: SettingsIcon },
   ].filter(Boolean)
     .filter(item => {
       if (!currentUser) return false;
       if (currentUser.role === 'admin') return true;
-      if (item.id === 'settings') return false;
+      if (item.id === 'settings') return !!currentUser.permissions?.canManageSettings;
+      
+      // Allow if user has explicit permission
+      if (item.id === 'employees' && currentUser.permissions?.canManageEmployees) return true;
+      if (item.id === 'leaves' && currentUser.permissions?.canApproveLeave) return true;
+      if (item.id === 'supplies' && currentUser.permissions?.canApproveSupply) return true;
+      if (item.id === 'archives' && currentUser.permissions?.canViewArchives) return true;
+
       if (item.id === 'employees' && currentUser.role === 'employee') return true;
       const perm = settings.menuPermissions?.[item.id] ?? (
         (item.id === 'employees') ? 'admin_only' : 'all'
@@ -900,6 +954,7 @@ export default function App() {
         onRegisterCustomEmployee={handleRegisterEmployee}
         onUpdateAccountPassword={handleUpdatePassword}
         departments={settings.departments || []}
+        settings={settings}
       />
     );
   }
@@ -1328,6 +1383,7 @@ export default function App() {
                   onAddAccount={handleAddAccount}
                   onDeleteAccount={handleDeleteAccount}
                   onUpdateAccountPassword={handleUpdatePassword}
+                  onUpdateAccount={handleUpdateAccount}
                   activeUserEmail={currentUser?.email || ''}
                 />
               )}

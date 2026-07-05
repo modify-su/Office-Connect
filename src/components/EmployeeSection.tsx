@@ -225,12 +225,12 @@ export default function EmployeeSection({
       employeeId: generatedId,
       firstName: formFirstName,
       lastName: formLastName,
-      position: editingEmployee ? editingEmployee.position : formPosition,
-      department: editingEmployee ? editingEmployee.department : formDepartment,
+      position: editingEmployee && isEmployee ? editingEmployee.position : formPosition,
+      department: editingEmployee && isEmployee ? editingEmployee.department : formDepartment,
       email: formEmail || '-',
       phone: formPhone || '-',
-      startDate: editingEmployee ? editingEmployee.startDate : formStartDate,
-      status: editingEmployee ? editingEmployee.status : formStatus,
+      startDate: editingEmployee && isEmployee ? editingEmployee.startDate : formStartDate,
+      status: editingEmployee && isEmployee ? editingEmployee.status : formStatus,
       avatar: formAvatar || (formFirstName[0] || '') + (formLastName[0] || ''),
       personalId: formPersonalId || '-',
       birthDate: formBirthDate,
@@ -495,8 +495,8 @@ export default function EmployeeSection({
         </div>
       </div>
 
-      {/* Grid container: Table of employee layout */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden" id="employee-display-table-container">
+      {/* Grid container: Table of employee layout (Tablet & Desktop) */}
+      <div className="hidden md:block bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden" id="employee-display-table-container">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse" id="employee-data-table">
             <thead>
@@ -602,6 +602,90 @@ export default function EmployeeSection({
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Grid container: Cards Layout for Mobile Screen Devices */}
+      <div className="block md:hidden space-y-4" id="employee-display-cards-container">
+        {filteredEmployees.length > 0 ? (
+          filteredEmployees.map((emp) => (
+            <div key={emp.id} className="bg-white p-5 rounded-2xl shadow-xs border border-slate-100 space-y-4 hover:shadow-md transition">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <EmployeeAvatar avatar={emp.avatar} className="w-12 h-12 rounded-full bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center font-bold text-base overflow-hidden" />
+                  <div>
+                    <h4 className="font-bold text-slate-800 flex items-center gap-1.5 flex-wrap leading-tight">
+                      {emp.firstName} {emp.lastName}
+                      {emp.verificationStatus === 'pending' && (
+                        <span className="bg-amber-500/15 text-amber-700 text-[9px] px-2 py-0.5 rounded-full border border-amber-500/25 font-sans animate-pulse font-medium">
+                          รอตรวจ
+                        </span>
+                      )}
+                    </h4>
+                    <p className="text-xs font-mono text-slate-400">{emp.employeeId}</p>
+                  </div>
+                </div>
+                <span className={`px-2.5 py-1 rounded-full text-[10px] font-medium border ${
+                  emp.status === 'active'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                    : emp.status === 'leave'
+                    ? 'bg-amber-50 text-amber-700 border-amber-100'
+                    : 'bg-rose-50 text-rose-700 border-rose-100'
+                }`}>
+                  {emp.status === 'active' ? 'ทำงานปกติ' : emp.status === 'leave' ? 'พักร้อน/ลา' : 'พักงาน'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 pt-3 border-t border-slate-50 text-xs text-slate-600">
+                <div>
+                  <p className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-0.5">ตำแหน่ง / แผนก</p>
+                  <p className="font-bold text-slate-800">{emp.position}</p>
+                  <p className="text-slate-500">{emp.department}</p>
+                </div>
+                <div>
+                  <p className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-0.5">วันเริ่มทำงาน</p>
+                  <p className="font-mono text-slate-700 flex items-center gap-1 mt-0.5">
+                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                    {emp.startDate}
+                  </p>
+                </div>
+                <div className="col-span-2 space-y-1">
+                  <p className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-0.5">การติดต่อ</p>
+                  <p className="flex items-center gap-1.5 text-slate-600 truncate"><Mail className="w-3.5 h-3.5 text-slate-400" /> {emp.email}</p>
+                  <p className="flex items-center gap-1.5 text-slate-600"><Phone className="w-3.5 h-3.5 text-slate-400" /> {emp.phone}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-50">
+                <button
+                  onClick={() => setViewingEmployee(emp)}
+                  className="flex items-center gap-1 text-slate-600 hover:text-blue-600 hover:bg-blue-50 px-3 py-2 rounded-xl transition text-xs font-semibold"
+                >
+                  <Eye className="w-4 h-4" />
+                  <span>ดูประวัติ</span>
+                </button>
+                <button
+                  onClick={() => handleOpenEditModal(emp)}
+                  className="flex items-center gap-1 text-slate-600 hover:text-cyan-600 hover:bg-cyan-50 px-3 py-2 rounded-xl transition text-xs font-semibold"
+                >
+                  <Edit2 className="w-4 h-4" />
+                  <span>แก้ไข</span>
+                </button>
+                <button
+                  onClick={() => setDeleteConfirmEmp(emp)}
+                  className="flex items-center gap-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 px-3 py-2 rounded-xl transition text-xs font-semibold"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>ลบ</span>
+                </button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="bg-white p-8 rounded-2xl text-center text-slate-400 border border-slate-100 shadow-xs">
+            <Info className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+            ไม่พบข้อมูลผู้ถูกค้นหาและประวัติการทำงานในเงื่อนไขการกรองนี้
+          </div>
+        )}
       </div>
         </>
       )}
