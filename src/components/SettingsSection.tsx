@@ -71,6 +71,7 @@ export default function SettingsSection({
   const [modalCanManageEmployees, setModalCanManageEmployees] = useState(false);
   const [modalCanManageSettings, setModalCanManageSettings] = useState(false);
   const [modalCanViewArchives, setModalCanViewArchives] = useState(false);
+  const [modalCanManageSupplyItems, setModalCanManageSupplyItems] = useState(false);
 
   const handleOpenPermissionsModal = (acc: UserAccount) => {
     setSelectedPermsAccount(acc);
@@ -80,6 +81,7 @@ export default function SettingsSection({
     setModalCanManageEmployees(acc.permissions?.canManageEmployees || false);
     setModalCanManageSettings(acc.permissions?.canManageSettings || false);
     setModalCanViewArchives(acc.permissions?.canViewArchives || false);
+    setModalCanManageSupplyItems(acc.permissions?.canManageSupplyItems || false);
   };
 
   const applyPermissionTemplate = (type: 'hr' | 'inventory' | 'general' | 'coadmin') => {
@@ -90,6 +92,7 @@ export default function SettingsSection({
       setModalCanManageEmployees(true);
       setModalCanManageSettings(false);
       setModalCanViewArchives(true);
+      setModalCanManageSupplyItems(false);
     } else if (type === 'inventory') {
       setModalRole('employee');
       setModalCanApproveLeave(false);
@@ -97,6 +100,7 @@ export default function SettingsSection({
       setModalCanManageEmployees(false);
       setModalCanManageSettings(false);
       setModalCanViewArchives(false);
+      setModalCanManageSupplyItems(true);
     } else if (type === 'general') {
       setModalRole('employee');
       setModalCanApproveLeave(false);
@@ -104,6 +108,7 @@ export default function SettingsSection({
       setModalCanManageEmployees(false);
       setModalCanManageSettings(false);
       setModalCanViewArchives(false);
+      setModalCanManageSupplyItems(false);
     } else if (type === 'coadmin') {
       setModalRole('employee');
       setModalCanApproveLeave(true);
@@ -111,6 +116,7 @@ export default function SettingsSection({
       setModalCanManageEmployees(true);
       setModalCanManageSettings(true);
       setModalCanViewArchives(true);
+      setModalCanManageSupplyItems(true);
     }
   };
 
@@ -125,7 +131,8 @@ export default function SettingsSection({
           canApproveSupply: modalCanApproveSupply,
           canManageEmployees: modalCanManageEmployees,
           canManageSettings: modalCanManageSettings,
-          canViewArchives: modalCanViewArchives
+          canViewArchives: modalCanViewArchives,
+          canManageSupplyItems: modalCanManageSupplyItems
         }
       });
       setUserNotification(`อัปเดตสิทธิ์ผู้ใช้ ${selectedPermsAccount.name} เรียบร้อยแล้ว`);
@@ -1444,6 +1451,20 @@ export default function SettingsSection({
                         type="checkbox"
                         checked={modalCanApproveSupply}
                         onChange={(e) => setModalCanApproveSupply(e.target.checked)}
+                        className="w-4 h-4 text-indigo-600 border-slate-200 rounded focus:ring-indigo-500 cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Can manage supply items */}
+                    <div className="flex items-center justify-between p-2.5 bg-slate-50/60 rounded-xl border border-slate-100">
+                      <div>
+                        <span className="text-xs font-bold text-slate-700 block">จัดการเพิ่มรายการคลัง</span>
+                        <span className="text-[10px] text-slate-400">อนุญาตให้เพิ่ม ลบ แก้ไขข้อมูลวัสดุอุปกรณ์ และจัดการหมวดหมู่ในระบบคลังพัสดุ</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={modalCanManageSupplyItems}
+                        onChange={(e) => setModalCanManageSupplyItems(e.target.checked)}
                         className="w-4 h-4 text-indigo-600 border-slate-200 rounded focus:ring-indigo-500 cursor-pointer"
                       />
                     </div>

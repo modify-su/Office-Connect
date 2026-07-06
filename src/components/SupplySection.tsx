@@ -26,9 +26,10 @@ import {
   Maximize2,
   Sparkles,
   Camera,
-  CheckCircle
+  CheckCircle,
+  Edit2
 } from 'lucide-react';
-import { SupplyItem, SupplyRequest, Employee, UserAccount } from '../types';
+import { SupplyItem, SupplyRequest, Employee, UserAccount, SystemSettings } from '../types';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5Qrcode } from 'html5-qrcode';
 
@@ -44,6 +45,9 @@ interface SupplySectionProps {
   defaultAddOpen?: boolean;
   onClearDefaultAddOpen?: () => void;
   currentUser?: UserAccount | null;
+  settings?: SystemSettings;
+  onUpdateSettings?: (settings: SystemSettings) => void;
+  onUpdateSupplyItems?: (items: SupplyItem[]) => void;
 }
 
 export default function SupplySection({
@@ -57,10 +61,14 @@ export default function SupplySection({
   onRejectRequest,
   defaultAddOpen,
   onClearDefaultAddOpen,
-  currentUser
+  currentUser,
+  settings,
+  onUpdateSettings,
+  onUpdateSupplyItems
 }: SupplySectionProps) {
   const isEmployee = currentUser?.role === 'employee';
   const isEmployeeOnly = isEmployee && !currentUser?.permissions?.canApproveSupply;
+  const canManageSupplyItems = currentUser?.role === 'admin' || currentUser?.permissions?.canManageSupplyItems;
 
   // Navigation tabs inside supply section: 'inventory' VS 'requests'
   const [subTab, setSubTab] = useState<'inventory' | 'requests'>('inventory');
@@ -68,6 +76,12 @@ export default function SupplySection({
   // Search / Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+
+  // Category management state
+  const [isManageCategoriesModalOpen, setIsManageCategoriesModalOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [editingCategoryIndex, setEditingCategoryIndex] = useState<number | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = useState('');
 
   // Modals state
   const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
@@ -358,10 +372,106 @@ export default function SupplySection({
     }
   }, [defaultAddOpen]);
 
+  const handleAddCategory = () => {
+    if (!newCategoryName.trim()) {
+      alert('กรุณากรอกชื่อหมวดหมู่');
+      return;
+    }
+    const currentCats = [...supplyCategories];
+    if (currentCats.some(cat => cat.toLowerCase() === newCategoryName.trim().toLowerCase())) {
+      alert('หมวดหมู่นี้มีอยู่แล้วในระบบ');
+      return;
+    }
+    const updatedCats = [...currentCats, newCategoryName.trim()];
+    if (onUpdateSettings && settings) {
+      onUpdateSettings({
+        ...settings,
+        supplyCategories: updatedCats
+      });
+      setNewCategoryName('');
+    }
+  };
+
+  const handleEditCategory = (index: number) => {
+    if (!editingCategoryName.trim()) {
+      alert('กรุณากรอกชื่อหมวดหมู่');
+      return;
+    }
+    const currentCats = [...supplyCategories];
+    const oldName = currentCats[index];
+    const newName = editingCategoryName.trim();
+
+    if (oldName === newName) {
+      setEditingCategoryIndex(null);
+      return;
+    }
+
+    if (currentCats.some((cat, i) => i !== index && cat.toLowerCase() === newName.toLowerCase())) {
+      alert('หมวดหมู่นี้มีอยู่แล้วในระบบ');
+      return;
+    }
+
+    currentCats[index] = newName;
+
+    if (onUpdateSupplyItems) {
+      const updatedItems = supplyItems.map(item => {
+        if (item.category === oldName) {
+          return { ...item, category: newName };
+        }
+        return item;
+      });
+      onUpdateSupplyItems(updatedItems);
+    }
+
+    if (onUpdateSettings && settings) {
+      onUpdateSettings({
+        ...settings,
+        supplyCategories: currentCats
+      });
+    }
+
+    setEditingCategoryIndex(null);
+    setEditingCategoryName('');
+  };
+
+  const handleDeleteCategory = (index: number) => {
+    const currentCats = [...supplyCategories];
+    const targetCat = currentCats[index];
+
+    const itemsUsingCat = supplyItems.filter(item => item.category === targetCat);
+    if (itemsUsingCat.length > 0) {
+      const confirmDelete = window.confirm(
+        `หมวดหมู่ "${targetCat}" มีการใช้งานโดยวัสดุอุปกรณ์จำนวน ${itemsUsingCat.length} รายการ\nหากลบหมวดหมู่นี้ รายการอุปกรณ์เหล่านี้จะถูกเปลี่ยนเป็นประเภท "อื่นๆ"\n\nยืนยันที่จะลบใช่หรือไม่?`
+      );
+      if (!confirmDelete) return;
+
+      if (onUpdateSupplyItems) {
+        const updatedItems = supplyItems.map(item => {
+          if (item.category === targetCat) {
+            return { ...item, category: 'อื่นๆ' };
+          }
+          return item;
+        });
+        onUpdateSupplyItems(updatedItems);
+      }
+    } else {
+      const confirmDelete = window.confirm(`ยืนยันการลบหมวดหมู่ "${targetCat}" หรือไม่?`);
+      if (!confirmDelete) return;
+    }
+
+    const updatedCats = currentCats.filter((_, i) => i !== index);
+    if (onUpdateSettings && settings) {
+      onUpdateSettings({
+        ...settings,
+        supplyCategories: updatedCats
+      });
+    }
+  };
+
   // Handle open add item
   const handleOpenAddItemModal = () => {
     setFormItemName('');
-    setFormCategory('เครื่องเขียน');
+    setFormCategory(supplyCategories[0] || 'เครื่องเขียน');
     setFormStock(10);
     setFormMinStock(5);
     setFormUnit('ชิ้น');
@@ -479,7 +589,8 @@ export default function SupplySection({
   };
 
   // Get categories list
-  const categories = ['All', 'เครื่องเขียน', 'อุปกรณ์สำนักงาน', 'เวชภัณฑ์', 'เทคโนโลยี', 'อื่นๆ'];
+  const supplyCategories = settings?.supplyCategories || ['เครื่องเขียน', 'อุปกรณ์สำนักงาน', 'เวชภัณฑ์', 'เทคโนโลยี', 'อื่นๆ'];
+  const categories = ['All', ...supplyCategories];
 
   // Filter Supply Items list
   const filteredItems = supplyItems.filter(item => {
@@ -499,7 +610,7 @@ export default function SupplySection({
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-800 font-sans flex items-center gap-2">
             <Package className="w-6 h-6 text-blue-600" />
-            {isEmployeeOnly ? 'รายการพัสดุเบิกจ่ายและใบเบิกของฉัน' : 'ระบบคลังเบิกจ่ายและจัดการพัสดุส่วนกลาง'}
+            {isEmployeeOnly ? 'รายการพัสดุเบิกจ่ายและใบเบิกของฉัน' : 'ระบบเบิกจ่ายและจัดการพัสดุ'}
           </h2>
           <p className="text-sm text-slate-500">
             {isEmployeeOnly ? 'ค้นหาวัสดุอุปกรณ์สำนักงานที่ให้บริการ ส่งใบขอเบิกพัสดุ และตรวจสอบสถานะรายการของคุณ' : 'จัดการข้อมูลอุปกรณ์สำนักงาน ค้นหาสินค้า และอนุมัติใบรับพัสดุของพนักงาน'}
@@ -520,14 +631,23 @@ export default function SupplySection({
             <QrCode className="w-4 h-4" />
             สแกน QR Code (รับเข้า/เบิก)
           </button>
-          {!isEmployeeOnly && (
-            <button
-              onClick={handleOpenAddItemModal}
-              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white font-semibold px-4 py-2.5 rounded-xl text-sm shadow transition cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              เพิ่มพัสดุเข้าคลังใหม่
-            </button>
+          {canManageSupplyItems && (
+            <>
+              <button
+                onClick={() => setIsManageCategoriesModalOpen(true)}
+                className="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold px-4 py-2.5 rounded-xl text-sm shadow-xs transition cursor-pointer"
+              >
+                <Tags className="w-4 h-4" />
+                จัดการหมวดหมู่รายการ
+              </button>
+              <button
+                onClick={handleOpenAddItemModal}
+                className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white font-semibold px-4 py-2.5 rounded-xl text-sm shadow transition cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                เพิ่มรายการคลัง
+              </button>
+            </>
           )}
           <button
             onClick={handleOpenRequestModal}
@@ -550,7 +670,7 @@ export default function SupplySection({
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
-          📂 คลังวัสดุอุปกรณ์สำนักงาน ({supplyItems.length})
+          📂 รายการวัสดุและอุปกรณ์ ({supplyItems.length})
         </button>
         <button
           onClick={() => setSubTab('requests')}
@@ -592,7 +712,7 @@ export default function SupplySection({
               >
                 {categories.map((cat, i) => (
                   <option key={i} value={cat}>
-                    {cat === 'All' ? 'ทุกประเภทพัสดุ' : cat}
+                    {cat === 'All' ? 'ทุกหมวดหมู่รายการ' : cat}
                   </option>
                 ))}
               </select>
@@ -683,7 +803,7 @@ export default function SupplySection({
                         </span>
                       </div>
                       
-                      {!isEmployee && (
+                      {canManageSupplyItems && (
                         <button
                           onClick={() => {
                             setRestockItemId(item.id);
@@ -923,17 +1043,15 @@ export default function SupplySection({
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">หมวดหมู่กลุ่มของใช้ *</label>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">หมวดหมู่รายการ *</label>
                   <select
                     value={formCategory}
                     onChange={(e) => setFormCategory(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-1.5 focus:ring-blue-500"
                   >
-                    <option value="เครื่องเขียน">เครื่องเขียน</option>
-                    <option value="อุปกรณ์สำนักงาน">อุปกรณ์สำนักงาน</option>
-                    <option value="เวชภัณฑ์">เวชภัณฑ์</option>
-                    <option value="เทคโนโลยี">เทคโนโลยี</option>
-                    <option value="อื่นๆ">อื่นๆ</option>
+                    {supplyCategories.map((cat, idx) => (
+                      <option key={idx} value={cat}>{cat}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -1627,6 +1745,167 @@ export default function SupplySection({
                 className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold text-xs rounded-xl transition cursor-pointer"
               >
                 เสร็จสิ้น / ปิดหน้าต่าง
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* MODAL: MANAGE CATEGORIES */}
+      {isManageCategoriesModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden"
+          >
+            {/* Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2">
+                <Tags className="w-5 h-5 text-indigo-600" />
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 font-sans">จัดการหมวดหมู่รายการ</h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">เพิ่ม ลบ หรือแก้ไขชื่อหมวดหมู่ที่ใช้งานในระบบคลังพัสดุ</p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => {
+                  setIsManageCategoriesModalOpen(false);
+                  setEditingCategoryIndex(null);
+                }} 
+                className="text-slate-400 p-1 hover:bg-slate-200 rounded-lg cursor-pointer transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
+              {/* Form to Add New Category */}
+              <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 space-y-2">
+                <label className="block text-xs font-bold text-indigo-950">เพิ่มหมวดหมู่ใหม่</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    placeholder="ระบุชื่อหมวดหมู่ใหม่..."
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddCategory();
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-1.5 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddCategory}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition flex items-center gap-1 cursor-pointer shadow-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>เพิ่ม</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* List of existing categories */}
+              <div className="space-y-2.5">
+                <label className="block text-xs font-bold text-slate-600">รายการหมวดหมู่ทั้งหมด ({supplyCategories.length})</label>
+                <div className="space-y-2">
+                  {supplyCategories.map((cat, index) => {
+                    const isEditing = editingCategoryIndex === index;
+                    const itemsCount = supplyItems.filter(item => item.category === cat).length;
+
+                    return (
+                      <div 
+                        key={index} 
+                        className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl shadow-2xs hover:bg-slate-50/50 transition gap-3"
+                      >
+                        {isEditing ? (
+                          <div className="flex flex-1 gap-1.5 items-center">
+                            <input
+                              type="text"
+                              value={editingCategoryName}
+                              onChange={(e) => setEditingCategoryName(e.target.value)}
+                              className="flex-1 px-2.5 py-1.5 bg-white border border-indigo-300 rounded-lg text-xs focus:outline-none focus:ring-1.5 focus:ring-indigo-500 font-medium"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleEditCategory(index);
+                                } else if (e.key === 'Escape') {
+                                  setEditingCategoryIndex(null);
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleEditCategory(index)}
+                              className="p-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition cursor-pointer"
+                              title="บันทึก"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingCategoryIndex(null)}
+                              className="p-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg transition cursor-pointer"
+                              title="ยกเลิก"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-xs font-bold text-slate-800 truncate">{cat}</span>
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-500 font-sans border border-slate-150">
+                                {itemsCount} รายการพัสดุ
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingCategoryIndex(index);
+                                  setEditingCategoryName(cat);
+                                }}
+                                className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                                title="แก้ไขชื่อหมวดหมู่"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCategory(index)}
+                                className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                                title="ลบหมวดหมู่"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsManageCategoriesModalOpen(false);
+                  setEditingCategoryIndex(null);
+                }}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                ปิดหน้าต่าง
               </button>
             </div>
           </motion.div>

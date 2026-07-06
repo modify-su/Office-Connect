@@ -613,6 +613,12 @@ export default function App() {
     triggerToast('บันทึกการเติมสต็อกอุปกรณ์สำนักงานเรียบร้อย');
   };
 
+  const handleUpdateSupplyItems = (items: SupplyItem[]) => {
+    setSupplyItems(items);
+    saveStoredData({ supplyItems: items });
+    items.forEach(item => saveSupplyItemCloud(item));
+  };
+
   const handleAddSupplyRequest = (reqOrReqs: Omit<SupplyRequest, 'id' | 'createdAt' | 'status'> | Omit<SupplyRequest, 'id' | 'createdAt' | 'status'>[]) => {
     const isArray = Array.isArray(reqOrReqs);
     const reqsToProcess = isArray ? reqOrReqs : [reqOrReqs];
@@ -904,7 +910,7 @@ export default function App() {
     // Check custom permissions first
     if (tabId === 'employees' && currentUser.permissions?.canManageEmployees) return true;
     if (tabId === 'leaves' && currentUser.permissions?.canApproveLeave) return true;
-    if (tabId === 'supplies' && currentUser.permissions?.canApproveSupply) return true;
+    if (tabId === 'supplies' && (currentUser.permissions?.canApproveSupply || currentUser.permissions?.canManageSupplyItems)) return true;
     if (tabId === 'archives' && currentUser.permissions?.canViewArchives) return true;
 
     if (tabId === 'employees' && currentUser.role === 'employee') return true;
@@ -932,7 +938,7 @@ export default function App() {
       // Allow if user has explicit permission
       if (item.id === 'employees' && currentUser.permissions?.canManageEmployees) return true;
       if (item.id === 'leaves' && currentUser.permissions?.canApproveLeave) return true;
-      if (item.id === 'supplies' && currentUser.permissions?.canApproveSupply) return true;
+      if (item.id === 'supplies' && (currentUser.permissions?.canApproveSupply || currentUser.permissions?.canManageSupplyItems)) return true;
       if (item.id === 'archives' && currentUser.permissions?.canViewArchives) return true;
 
       if (item.id === 'employees' && currentUser.role === 'employee') return true;
@@ -1363,6 +1369,9 @@ export default function App() {
                   defaultAddOpen={openSupplyAdd}
                   onClearDefaultAddOpen={() => setOpenSupplyAdd(false)}
                   currentUser={currentUser}
+                  settings={settings}
+                  onUpdateSettings={handleUpdateSettings}
+                  onUpdateSupplyItems={handleUpdateSupplyItems}
                 />
               )}
 

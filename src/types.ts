@@ -89,6 +89,7 @@ export interface SystemSettings {
   loginLogoUrl?: string;
   loginTitle?: string;
   loginSubtitle?: string;
+  supplyCategories?: string[];
 }
 
 export interface UserAccountPermissions {
@@ -97,6 +98,7 @@ export interface UserAccountPermissions {
   canManageEmployees?: boolean;
   canManageSettings?: boolean;
   canViewArchives?: boolean;
+  canManageSupplyItems?: boolean;
 }
 
 export interface UserAccount {

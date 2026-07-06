@@ -39,7 +39,14 @@ export const defaultSettings: SystemSettings = {
   ],
   loginLogoUrl: '',
   loginTitle: 'OfficeConnect',
-  loginSubtitle: 'ระบบบริหารจัดการและประมวลผลข้อมูลองค์กรแบบเรียลไทม์'
+  loginSubtitle: 'ระบบบริหารจัดการและประมวลผลข้อมูลองค์กรแบบเรียลไทม์',
+  supplyCategories: [
+    'เครื่องเขียน',
+    'อุปกรณ์สำนักงาน',
+    'เวชภัณฑ์',
+    'เทคโนโลยี',
+    'อื่นๆ'
+  ]
 };
 
 export const initialAccounts: UserAccount[] = [
