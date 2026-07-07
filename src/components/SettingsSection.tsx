@@ -164,6 +164,9 @@ export default function SettingsSection({
   const [workHoursStart, setWorkHoursStart] = useState(settings.workHoursStart);
   const [workHoursEnd, setWorkHoursEnd] = useState(settings.workHoursEnd);
   const [hasOvertime, setHasOvertime] = useState(settings.hasOvertime);
+  const [otStartTime, setOtStartTime] = useState(settings.otStartTime || '18:00');
+  const [otRate, setOtRate] = useState(settings.otRate ?? 1.5);
+  const [lateThresholdMins, setLateThresholdMins] = useState(settings.lateThresholdMins ?? 15);
   
   // Login Branding state variables
   const [loginLogoUrl, setLoginLogoUrl] = useState(settings.loginLogoUrl || '');
@@ -330,6 +333,9 @@ export default function SettingsSection({
         personal: personalMax
       },
       hasOvertime,
+      otStartTime,
+      otRate,
+      lateThresholdMins,
       menuPermissions,
       departments: settings.departments,
       loginLogoUrl,
@@ -710,6 +716,51 @@ export default function SettingsSection({
                       value={workHoursEnd}
                       onChange={(e) => setWorkHoursEnd(e.target.value)}
                       className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Late Grace Period and OT Start Time / Rate */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-slate-400" />
+                      อนุญาตให้สายได้สูงสุด (นาที)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={lateThresholdMins}
+                      onChange={(e) => setLateThresholdMins(Number(e.target.value))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-slate-400" />
+                      เวลาเริ่มนับโอที (OT) (น.)
+                    </label>
+                    <input
+                      type="time"
+                      disabled={!hasOvertime}
+                      value={otStartTime}
+                      onChange={(e) => setOtStartTime(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:bg-slate-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-slate-400" />
+                      อัตราค่าทำงานล่วงเวลา (เท่า)
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      step={0.1}
+                      disabled={!hasOvertime}
+                      value={otRate}
+                      onChange={(e) => setOtRate(Number(e.target.value))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:bg-slate-50"
                     />
                   </div>
                 </div>

@@ -48,6 +48,8 @@ interface SupplySectionProps {
   settings?: SystemSettings;
   onUpdateSettings?: (settings: SystemSettings) => void;
   onUpdateSupplyItems?: (items: SupplyItem[]) => void;
+  onUpdateSupplyItem?: (item: SupplyItem) => void;
+  onDeleteSupplyItem?: (id: string) => void;
 }
 
 export default function SupplySection({
@@ -64,7 +66,9 @@ export default function SupplySection({
   currentUser,
   settings,
   onUpdateSettings,
-  onUpdateSupplyItems
+  onUpdateSupplyItems,
+  onUpdateSupplyItem,
+  onDeleteSupplyItem
 }: SupplySectionProps) {
   const isEmployee = currentUser?.role === 'employee';
   const isEmployeeOnly = isEmployee && !currentUser?.permissions?.canApproveSupply;
@@ -85,10 +89,24 @@ export default function SupplySection({
 
   // Modals state
   const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
+  const [isEditItemModalOpen, setIsEditItemModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<SupplyItem | null>(null);
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [restockItemId, setRestockItemId] = useState<string | null>(null);
   const [restockAmount, setRestockAmount] = useState<number>(10);
   const [actingSupplyReq, setActingSupplyReq] = useState<{ id: string; action: 'approve' | 'reject' } | null>(null);
+
+  // Local Confirmation Dialog
+  const [localConfirm, setLocalConfirm] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    isDanger?: boolean;
+  } | null>(null);
+
+  const askConfirm = (title: string, message: string, onConfirm: () => void, isDanger = false) => {
+    setLocalConfirm({ title, message, onConfirm, isDanger });
+  };
 
   // Form states - Add Item
   const [formItemName, setFormItemName] = useState('');
@@ -97,6 +115,14 @@ export default function SupplySection({
   const [formMinStock, setFormMinStock] = useState(5);
   const [formUnit, setFormUnit] = useState('ชิ้น');
   const [formPrice, setFormPrice] = useState(10);
+
+  // Form states - Edit Item
+  const [editFormItemName, setEditFormItemName] = useState('');
+  const [editFormCategory, setEditFormCategory] = useState('เครื่องเขียน');
+  const [editFormStock, setEditFormStock] = useState(0);
+  const [editFormMinStock, setEditFormMinStock] = useState(5);
+  const [editFormUnit, setEditFormUnit] = useState('ชิ้น');
+  const [editFormPrice, setEditFormPrice] = useState(0);
 
   // Form states - Request Supply
   const [formEmployeeId, setFormEmployeeId] = useState('');
@@ -440,31 +466,44 @@ export default function SupplySection({
 
     const itemsUsingCat = supplyItems.filter(item => item.category === targetCat);
     if (itemsUsingCat.length > 0) {
-      const confirmDelete = window.confirm(
-        `หมวดหมู่ "${targetCat}" มีการใช้งานโดยวัสดุอุปกรณ์จำนวน ${itemsUsingCat.length} รายการ\nหากลบหมวดหมู่นี้ รายการอุปกรณ์เหล่านี้จะถูกเปลี่ยนเป็นประเภท "อื่นๆ"\n\nยืนยันที่จะลบใช่หรือไม่?`
-      );
-      if (!confirmDelete) return;
-
-      if (onUpdateSupplyItems) {
-        const updatedItems = supplyItems.map(item => {
-          if (item.category === targetCat) {
-            return { ...item, category: 'อื่นๆ' };
+      askConfirm(
+        'ยืนยันการลบหมวดหมู่',
+        `หมวดหมู่ "${targetCat}" มีการใช้งานโดยวัสดุอุปกรณ์จำนวน ${itemsUsingCat.length} รายการ\nหากลบหมวดหมู่นี้ รายการอุปกรณ์เหล่านี้จะถูกเปลี่ยนเป็นประเภท "อื่นๆ"\n\nยืนยันที่จะลบใช่หรือไม่?`,
+        () => {
+          if (onUpdateSupplyItems) {
+            const updatedItems = supplyItems.map(item => {
+              if (item.category === targetCat) {
+                return { ...item, category: 'อื่นๆ' };
+              }
+              return item;
+            });
+            onUpdateSupplyItems(updatedItems);
           }
-          return item;
-        });
-        onUpdateSupplyItems(updatedItems);
-      }
+          const updatedCats = currentCats.filter((_, i) => i !== index);
+          if (onUpdateSettings && settings) {
+            onUpdateSettings({
+              ...settings,
+              supplyCategories: updatedCats
+            });
+          }
+        },
+        true
+      );
     } else {
-      const confirmDelete = window.confirm(`ยืนยันการลบหมวดหมู่ "${targetCat}" หรือไม่?`);
-      if (!confirmDelete) return;
-    }
-
-    const updatedCats = currentCats.filter((_, i) => i !== index);
-    if (onUpdateSettings && settings) {
-      onUpdateSettings({
-        ...settings,
-        supplyCategories: updatedCats
-      });
+      askConfirm(
+        'ยืนยันการลบหมวดหมู่',
+        `ยืนยันการลบหมวดหมู่ "${targetCat}" หรือไม่?`,
+        () => {
+          const updatedCats = currentCats.filter((_, i) => i !== index);
+          if (onUpdateSettings && settings) {
+            onUpdateSettings({
+              ...settings,
+              supplyCategories: updatedCats
+            });
+          }
+        },
+        true
+      );
     }
   };
 
@@ -520,6 +559,57 @@ export default function SupplySection({
     });
 
     setIsAddItemModalOpen(false);
+  };
+
+  const handleOpenEditModal = (item: SupplyItem) => {
+    setEditingItem(item);
+    setEditFormItemName(item.name);
+    setEditFormCategory(item.category);
+    setEditFormStock(item.stock);
+    setEditFormMinStock(item.minStock);
+    setEditFormUnit(item.unit);
+    setEditFormPrice(item.price);
+    setIsEditItemModalOpen(true);
+  };
+
+  const handleEditItemSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem) return;
+    if (!editFormItemName) {
+      alert('กรุณาระบุชื่อพัสดุอุปกรณ์');
+      return;
+    }
+
+    if (onUpdateSupplyItem) {
+      onUpdateSupplyItem({
+        ...editingItem,
+        name: editFormItemName,
+        category: editFormCategory,
+        stock: editFormStock,
+        minStock: editFormMinStock,
+        unit: editFormUnit,
+        price: editFormPrice
+      });
+    }
+
+    setIsEditItemModalOpen(false);
+    setEditingItem(null);
+  };
+
+  const handleDeleteItem = (id: string) => {
+    const itemToDelete = supplyItems.find(item => item.id === id);
+    if (!itemToDelete) return;
+
+    askConfirm(
+      'ยืนยันการลบรายการพัสดุ',
+      `คุณแน่ใจหรือไม่ว่าต้องการลบรายการพัสดุ "${itemToDelete.name}"? การดำเนินการนี้ไม่สามารถย้อนกลับได้`,
+      () => {
+        if (onDeleteSupplyItem) {
+          onDeleteSupplyItem(id);
+        }
+      },
+      true
+    );
   };
 
   // Submit Request Supply list
@@ -804,16 +894,35 @@ export default function SupplySection({
                       </div>
                       
                       {canManageSupplyItems && (
-                        <button
-                          onClick={() => {
-                            setRestockItemId(item.id);
-                            setRestockAmount(10);
-                          }}
-                          className="flex items-center gap-1 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-100 hover:bg-blue-100 rounded-lg px-2.5 py-1.5 transition cursor-pointer"
-                        >
-                          <ArrowDownToLine className="w-3.5 h-3.5" />
-                          เติมสต็อก
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditModal(item)}
+                            className="p-2 rounded-lg bg-slate-50 hover:bg-blue-50 text-slate-600 hover:text-blue-600 border border-slate-200 hover:border-blue-200 transition cursor-pointer"
+                            title="แก้ไขข้อมูลวัสดุ"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteItem(item.id)}
+                            className="p-2 rounded-lg bg-slate-50 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 hover:border-rose-200 transition cursor-pointer"
+                            title="ลบวัสดุพัสดุ"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRestockItemId(item.id);
+                              setRestockAmount(10);
+                            }}
+                            className="flex items-center gap-1 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-100 hover:bg-blue-100 rounded-lg px-2.5 py-1.5 transition cursor-pointer"
+                          >
+                            <ArrowDownToLine className="w-3.5 h-3.5" />
+                            เติมสต็อก
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1116,6 +1225,159 @@ export default function SupplySection({
                   className="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-xl text-sm"
                 >
                   บันทึกลงทะเบียน
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* MODAL: LOCAL CONFIRMATION */}
+      {localConfirm && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[110]">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 border border-slate-100"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`p-2.5 rounded-xl ${localConfirm.isDanger ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'}`}>
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900 font-sans">{localConfirm.title}</h3>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed font-sans mb-6">{localConfirm.message}</p>
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setLocalConfirm(null)}
+                className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold px-4 py-2 rounded-xl text-sm transition cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  localConfirm.onConfirm();
+                  setLocalConfirm(null);
+                }}
+                className={`text-white font-semibold px-4 py-2 rounded-xl text-sm transition cursor-pointer ${
+                  localConfirm.isDanger ? 'bg-rose-600 hover:bg-rose-500' : 'bg-blue-600 hover:bg-blue-500'
+                }`}
+              >
+                ยืนยัน
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* MODAL: EDIT INVENTORY ITEM */}
+      {isEditItemModalOpen && editingItem && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6"
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
+              <h3 className="text-lg font-bold text-slate-800 font-sans flex items-center gap-2">
+                <Package className="w-5 h-5 text-blue-600" />
+                แก้ไขข้อมูลพัสดุอุปกรณ์ ({editingItem.code})
+              </h3>
+              <button onClick={() => { setIsEditItemModalOpen(false); setEditingItem(null); }} className="text-slate-400 p-1 hover:bg-slate-100 rounded-lg cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditItemSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1">ชื่อพัสดุ/อุปกรณ์สำนักงาน *</label>
+                <input
+                  type="text"
+                  required
+                  value={editFormItemName}
+                  onChange={(e) => setEditFormItemName(e.target.value)}
+                  placeholder="เช่น ปากกาไวท์บอร์ดสีดำ ตราม้า"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">หมวดหมู่รายการ *</label>
+                  <select
+                    value={editFormCategory}
+                    onChange={(e) => setEditFormCategory(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-1.5 focus:ring-blue-500"
+                  >
+                    {supplyCategories.map((cat, idx) => (
+                      <option key={idx} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">หน่วยนับ *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editFormUnit}
+                    onChange={(e) => setEditFormUnit(e.target.value)}
+                    placeholder="เช่น กล่อง/รีม/โหล"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">สต็อกที่มีอยู่ *</label>
+                  <input
+                    type="number"
+                    min={0}
+                    required
+                    value={editFormStock}
+                    onChange={(e) => setEditFormStock(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">จุดต่ำสุดที่เตือน *</label>
+                  <input
+                    type="number"
+                    min={1}
+                    required
+                    value={editFormMinStock}
+                    onChange={(e) => setEditFormMinStock(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">ราคาต่อหน่วย (฿)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    required
+                    value={editFormPrice}
+                    onChange={(e) => setEditFormPrice(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setIsEditItemModalOpen(false); setEditingItem(null); }}
+                  className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold px-4 py-2 rounded-xl text-sm"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-xl text-sm"
+                >
+                  บันทึกการแก้ไข
                 </button>
               </div>
             </form>

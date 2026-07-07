@@ -215,38 +215,123 @@ export default function AttendanceSection({
     const todayDateStr = currentTime.toISOString().split('T')[0];
     const timeStr = currentTime.toTimeString().split(' ')[0];
 
-    // Check duplicate check-ins of same type today (unless OT, which can be logged multiple times)
-    if (type !== 'overtime') {
-      const isDuplicate = attendanceRecords.some(
-        rec => rec.employeeId === selectedEmployeeId && rec.date === todayDateStr && rec.type === type
+    let finalType = type;
+    const recordsToSave: AttendanceRecord[] = [];
+    let otRecordedMsg = '';
+
+    if (type === 'clock_in') {
+      const [startHour, startMin] = settings.workHoursStart.split(':').map(Number);
+      const [nowHour, nowMin] = timeStr.split(':').map(Number);
+      const startTotalMins = startHour * 60 + startMin;
+      const nowTotalMins = nowHour * 60 + nowMin;
+      const gracePeriod = settings.lateThresholdMins ?? 15;
+
+      if (nowTotalMins > startTotalMins + gracePeriod) {
+        finalType = 'late';
+      }
+
+      // Check duplicate check-ins of same type today (clock_in or late)
+      const alreadyCheckedIn = attendanceRecords.some(
+        rec => rec.employeeId === selectedEmployeeId && 
+               rec.date === todayDateStr && 
+               (rec.type === 'clock_in' || rec.type === 'late')
       );
-      if (isDuplicate) {
-        const typeLabel = type === 'clock_in' ? 'เข้างาน' : type === 'clock_out' ? 'ออกงาน' : 'เข้าสาย';
+      if (alreadyCheckedIn) {
         setNotification({ 
           type: 'error', 
-          message: `พนักงานคนนี้ได้รับการบันทึกเวลา "${typeLabel}" สำหรับวันนี้แล้ว` 
+          message: `พนักงานคนนี้ได้รับการบันทึกเวลาเข้างาน (หรือเข้าสาย) สำหรับวันนี้แล้ว` 
         });
         return;
       }
+
+      recordsToSave.push({
+        id: 'att-' + Date.now(),
+        employeeId: emp.employeeId,
+        employeeName: `${emp.firstName} ${emp.lastName}`,
+        date: todayDateStr,
+        time: timeStr,
+        type: finalType,
+        notes: attendanceNotes.trim() || undefined,
+        recordedBy: currentUser?.email || 'system'
+      });
+    } else if (type === 'clock_out') {
+      const alreadyCheckedOut = attendanceRecords.some(
+        rec => rec.employeeId === selectedEmployeeId && 
+               rec.date === todayDateStr && 
+               rec.type === 'clock_out'
+      );
+      if (alreadyCheckedOut) {
+        setNotification({ 
+          type: 'error', 
+          message: `พนักงานคนนี้ได้รับการบันทึกเวลาออกงานสำหรับวันนี้แล้ว` 
+        });
+        return;
+      }
+
+      recordsToSave.push({
+        id: 'att-' + Date.now(),
+        employeeId: emp.employeeId,
+        employeeName: `${emp.firstName} ${emp.lastName}`,
+        date: todayDateStr,
+        time: timeStr,
+        type: 'clock_out',
+        notes: attendanceNotes.trim() || undefined,
+        recordedBy: currentUser?.email || 'system'
+      });
+
+      // Auto overtime detection and record creation
+      if (settings.hasOvertime) {
+        const otStart = settings.otStartTime || '18:00';
+        const [otHour, otMin] = otStart.split(':').map(Number);
+        const [nowHour, nowMin] = timeStr.split(':').map(Number);
+        const otTotalMins = otHour * 60 + otMin;
+        const nowTotalMins = nowHour * 60 + nowMin;
+
+        if (nowTotalMins > otTotalMins) {
+          const diffMins = nowTotalMins - otTotalMins;
+          const computedOt = Math.round((diffMins / 60) * 2) / 2; // nearest 0.5 hours
+          if (computedOt > 0) {
+            recordsToSave.push({
+              id: 'att-ot-' + (Date.now() + 1),
+              employeeId: emp.employeeId,
+              employeeName: `${emp.firstName} ${emp.lastName}`,
+              date: todayDateStr,
+              time: timeStr,
+              type: 'overtime',
+              notes: 'บันทึก OT อัตโนมัติจากเวลาออกงาน',
+              otHours: computedOt,
+              recordedBy: currentUser?.email || 'system'
+            });
+            otRecordedMsg = ` (และบันทึก OT อัตโนมัติ ${computedOt} ชม.)`;
+          }
+        }
+      }
+    } else {
+      recordsToSave.push({
+        id: 'att-' + Date.now(),
+        employeeId: emp.employeeId,
+        employeeName: `${emp.firstName} ${emp.lastName}`,
+        date: todayDateStr,
+        time: timeStr,
+        type,
+        notes: attendanceNotes.trim() || undefined,
+        otHours: type === 'overtime' ? otHours : undefined,
+        recordedBy: currentUser?.email || 'system'
+      });
     }
 
-    const newRecord: AttendanceRecord = {
-      id: 'att-' + Date.now(),
-      employeeId: emp.employeeId,
-      employeeName: `${emp.firstName} ${emp.lastName}`,
-      date: todayDateStr,
-      time: timeStr,
-      type,
-      notes: attendanceNotes.trim() || undefined,
-      otHours: type === 'overtime' ? otHours : undefined,
-      recordedBy: currentUser?.email || 'system'
-    };
+    if (recordsToSave.length > 0) {
+      if (onAddAttendanceBatch && recordsToSave.length > 1) {
+        onAddAttendanceBatch(recordsToSave);
+      } else {
+        recordsToSave.forEach(rec => onAddAttendance(rec));
+      }
+    }
 
-    onAddAttendance(newRecord);
     setAttendanceNotes('');
     setNotification({ 
       type: 'success', 
-      message: `บันทึกข้อมูล "${getAttendanceTypeLabel(type)}" สำหรับคุณ ${emp.firstName} สำเร็จเรียบร้อย!` 
+      message: `บันทึกข้อมูล "${getAttendanceTypeLabel(finalType)}" สำหรับคุณ ${emp.firstName} สำเร็จเรียบร้อย!${otRecordedMsg}` 
     });
 
     // Auto-clear notification after 4 seconds
@@ -452,8 +537,11 @@ export default function AttendanceSection({
               const parsedInTime = parseTimeStr(clockInTimeStr, '08:00:00');
               const [startHour, startMin] = settings.workHoursStart.split(':').map(Number);
               const [itemHour, itemMin] = parsedInTime.split(':').map(Number);
+              const startTotalMins = startHour * 60 + startMin;
+              const itemTotalMins = itemHour * 60 + itemMin;
+              const gracePeriod = settings.lateThresholdMins ?? 15;
               let type: AttendanceType = 'clock_in';
-              if (itemHour > startHour || (itemHour === startHour && itemMin > startMin)) {
+              if (itemTotalMins > startTotalMins + gracePeriod) {
                 type = 'late';
               }
               parsedItems.push(createRecordItem(parsedInTime, type));
@@ -485,9 +573,12 @@ export default function AttendanceSection({
             } else {
               const [startHour, startMin] = settings.workHoursStart.split(':').map(Number);
               const [itemHour, itemMin] = parsedTime.split(':').map(Number);
+              const startTotalMins = startHour * 60 + startMin;
+              const itemTotalMins = itemHour * 60 + itemMin;
+              const gracePeriod = settings.lateThresholdMins ?? 15;
               
               if (itemHour < 12) {
-                if (itemHour > startHour || (itemHour === startHour && itemMin > startMin)) {
+                if (itemTotalMins > startTotalMins + gracePeriod) {
                   type = 'late';
                 } else {
                   type = 'clock_in';
@@ -1300,94 +1391,32 @@ export default function AttendanceSection({
                   />
                 </div>
 
-                {/* Overtime Hours Configurator (only visible for Overtime logged in) */}
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <span className="text-xs font-bold text-purple-800 flex items-center gap-1">
-                      <Star className="w-3.5 h-3.5 fill-purple-200" />
-                      กำหนดชั่วโมงล่วงเวลาพิเศษ (OT)
-                    </span>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      ป้อนจำนวนชั่วโมงก่อนกดปุ่ม "บันทึกเวลา OT" ด้านขวา
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setOtHours(prev => Math.max(0.5, prev - 0.5))}
-                      className="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold flex items-center justify-center transition cursor-pointer"
-                    >
-                      -
-                    </button>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0.5"
-                      max="12"
-                      value={otHours}
-                      onChange={(e) => setOtHours(Math.max(0.5, parseFloat(e.target.value) || 1))}
-                      className="w-14 text-center bg-white border border-slate-200 rounded-lg py-1 text-sm font-bold text-slate-800"
-                    />
-                    <span className="text-xs font-bold text-slate-500">ชม.</span>
-                    <button
-                      type="button"
-                      onClick={() => setOtHours(prev => Math.min(12, prev + 0.5))}
-                      className="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold flex items-center justify-center transition cursor-pointer"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
               </div>
 
               {/* Action Buttons Matrix */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t border-slate-100" id="attendance-buttons-grid">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5 pt-4 border-t border-slate-100" id="attendance-buttons-grid">
                 <button
                   onClick={() => handleRecordAttendance('clock_in')}
-                  className="bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white p-3 rounded-xl flex flex-col items-center justify-center gap-1.5 transition duration-150 shadow-md shadow-emerald-50 cursor-pointer text-center group"
+                  className="bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white p-4 rounded-xl flex flex-col items-center justify-center gap-1.5 transition duration-150 shadow-md shadow-emerald-50 cursor-pointer text-center group"
                   id="btn-clock-in"
                 >
                   <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white group-hover:scale-105 transition">
                     <Check className="w-5 h-5 font-bold" />
                   </div>
                   <span className="text-xs font-bold">เวลาเข้างาน</span>
-                  <span className="text-[10px] text-emerald-150 font-normal">ลงบันทึกเข้างานปกติ</span>
+                  <span className="text-[10px] text-emerald-150 font-normal">ลงบันทึกเข้างาน (วิเคราะห์สายอัตโนมัติ)</span>
                 </button>
 
                 <button
                   onClick={() => handleRecordAttendance('clock_out')}
-                  className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white p-3 rounded-xl flex flex-col items-center justify-center gap-1.5 transition duration-150 shadow-md shadow-blue-50 cursor-pointer text-center group"
+                  className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white p-4 rounded-xl flex flex-col items-center justify-center gap-1.5 transition duration-150 shadow-md shadow-blue-50 cursor-pointer text-center group"
                   id="btn-clock-out"
                 >
                   <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white group-hover:scale-105 transition">
                     <Check className="w-5 h-5 font-bold" />
                   </div>
                   <span className="text-xs font-bold">เวลาออกงาน</span>
-                  <span className="text-[10px] text-blue-150 font-normal">ลงบันทึกเวลาเลิกงาน</span>
-                </button>
-
-                <button
-                  onClick={() => handleRecordAttendance('late')}
-                  className="bg-amber-500 hover:bg-amber-450 active:bg-amber-600 text-white p-3 rounded-xl flex flex-col items-center justify-center gap-1.5 transition duration-150 shadow-md shadow-amber-50 cursor-pointer text-center group"
-                  id="btn-clock-late"
-                >
-                  <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white group-hover:scale-105 transition">
-                    <Hourglass className="w-4 h-4 font-bold" />
-                  </div>
-                  <span className="text-xs font-bold">บันทึกเข้าสาย</span>
-                  <span className="text-[10px] text-amber-105 font-normal">เข้าปฏิบัติงานล่าช้า</span>
-                </button>
-
-                <button
-                  onClick={() => handleRecordAttendance('overtime')}
-                  className="bg-purple-600 hover:bg-purple-500 active:bg-purple-700 text-white p-3 rounded-xl flex flex-col items-center justify-center gap-1.5 transition duration-150 shadow-md shadow-purple-50 cursor-pointer text-center group"
-                  id="btn-clock-ot"
-                >
-                  <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white group-hover:scale-105 transition">
-                    <Star className="w-4 h-4 font-bold" />
-                  </div>
-                  <span className="text-xs font-bold">บันทึกเวลา OT</span>
-                  <span className="text-[10px] text-purple-150 font-normal">ทำงานล่วงเวลาสะสม</span>
+                  <span className="text-[10px] text-blue-150 font-normal">ลงบันทึกเวลาเลิกงาน (วิเคราะห์ OT อัตโนมัติ)</span>
                 </button>
               </div>
 
@@ -1430,7 +1459,7 @@ export default function AttendanceSection({
 
               <div className="mt-5 pt-4 border-t border-slate-100 space-y-2">
                 <p className="text-[10px] text-slate-400 leading-normal">
-                  💡 **คำแนะนำ:** การมาตรงเวลาคือกุญแจสำคัญ อิงเกณฑ์ตั้งค่าบริษัท เวลาทำงานเริ่มต้นคือ **{settings.workHoursStart} น.** หากบันทึกเวลาหลังเวลานี้ แนะนำให้กดลงบันทึกเป็นประเภท **"เข้าสาย"** เพื่อช่วยให้ฝ่าย HR สรุปข้อมูลเงินเดือนได้ถูกต้อง
+                  💡 **คำแนะนำ:** การมาตรงเวลาคือกุญแจสำคัญ อิงเกณฑ์ตั้งค่าบริษัท เวลาทำงานเริ่มต้นคือ **{settings.workHoursStart} น.** {(settings.lateThresholdMins ?? 15) > 0 ? `(อนุญาตผ่อนปรนสายได้ไม่เกิน ${settings.lateThresholdMins ?? 15} นาที)` : ''} หากบันทึกเวลาหลังจากช่วงเวลาดังกล่าว แนะนำให้กดลงบันทึกเป็นประเภท **"เข้าสาย"** เพื่อช่วยให้ฝ่าย HR สรุปข้อมูลได้ถูกต้อง
                 </p>
               </div>
             </div>

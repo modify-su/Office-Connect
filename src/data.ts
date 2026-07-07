@@ -22,6 +22,9 @@ export const defaultSettings: SystemSettings = {
     personal: 6
   },
   hasOvertime: true,
+  otStartTime: '18:00',
+  otRate: 1.5,
+  lateThresholdMins: 15,
   menuPermissions: {
     dashboard: 'all',
     employees: 'admin_only',

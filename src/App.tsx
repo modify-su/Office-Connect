@@ -23,7 +23,9 @@ import {
   FolderClosed,
   Download,
   Smartphone,
-  Share2
+  Share2,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 import { Employee, LeaveRequest, SupplyItem, SupplyRequest, SystemSettings, UserAccount, ArchiveRecord, AttendanceRecord } from './types';
@@ -82,7 +84,7 @@ export default function App() {
           if (parsed && parsed.role === 'employee' && !parsed.employeeId) {
             // Heal the session by pointing it to Somchai
             parsed.employeeId = 'EMP-001';
-            parsed.email = 'somchai.j@office.co.th';
+            parsed.email = 'email';
             parsed.name = 'สมชาย ใจดี';
             localStorage.setItem('office_session', JSON.stringify(parsed));
           }
@@ -98,6 +100,12 @@ export default function App() {
   // Active navigation tab
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('sidebar_collapsed') === 'true';
+    }
+    return false;
+  });
 
   // Progressive Web App (PWA) States & Handlers
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -619,6 +627,24 @@ export default function App() {
     items.forEach(item => saveSupplyItemCloud(item));
   };
 
+  const handleUpdateSupplyItem = (updatedItem: SupplyItem) => {
+    const nextList = supplyItems.map(item => item.id === updatedItem.id ? updatedItem : item);
+    setSupplyItems(nextList);
+    saveStoredData({ supplyItems: nextList });
+    saveSupplyItemCloud(updatedItem);
+    triggerToast(`อัปเดตข้อมูล "${updatedItem.name}" เรียบร้อยแล้ว`);
+  };
+
+  const handleDeleteSupplyItem = (id: string) => {
+    const itemToDelete = supplyItems.find(item => item.id === id);
+    if (!itemToDelete) return;
+    const nextList = supplyItems.filter(item => item.id !== id);
+    setSupplyItems(nextList);
+    saveStoredData({ supplyItems: nextList });
+    deleteSupplyItemCloud(id);
+    triggerToast(`ลบข้อมูล "${itemToDelete.name}" เรียบร้อยแล้ว`);
+  };
+
   const handleAddSupplyRequest = (reqOrReqs: Omit<SupplyRequest, 'id' | 'createdAt' | 'status'> | Omit<SupplyRequest, 'id' | 'createdAt' | 'status'>[]) => {
     const isArray = Array.isArray(reqOrReqs);
     const reqsToProcess = isArray ? reqOrReqs : [reqOrReqs];
@@ -969,20 +995,32 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row text-slate-800 font-sans" id="applet-main-layout">
       
       {/* SIDEBAR NAVIGATION (Desktop) */}
-      <aside className="hidden md:flex flex-col w-64 bg-slate-900 text-slate-300 min-h-screen p-5 border-r border-slate-800 flex-shrink-0 z-20" id="desktop-sidebar">
+      <aside className={`hidden md:flex flex-col ${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-slate-900 text-slate-300 min-h-screen ${isSidebarCollapsed ? 'p-3' : 'p-5'} border-r border-slate-800 flex-shrink-0 transition-all duration-300 ease-in-out z-20`} id="desktop-sidebar">
         {/* Core Brand Header */}
-        <div className="p-2 flex items-center gap-3 pb-4 border-b border-slate-800">
-          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center text-white font-bold text-lg shadow-sm">
-            O
+        <div className={`p-2 flex ${isSidebarCollapsed ? 'flex-col gap-3 items-center justify-center' : 'items-center justify-between'} pb-4 border-b border-slate-800`}>
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center text-white font-bold text-lg shadow-sm flex-shrink-0">
+              O
+            </div>
+            {!isSidebarCollapsed && (
+              <div className="transition-all duration-300">
+                <span className="text-white font-bold text-lg tracking-tight block">OfficeConnect</span>
+                <span className="text-[10px] text-slate-500 font-medium">ระบบสารสนเทศออฟฟิศ</span>
+              </div>
+            )}
           </div>
-          <div>
-            <span className="text-white font-bold text-lg tracking-tight block">OfficeConnect</span>
-            <span className="text-[10px] text-slate-500 font-medium">ระบบสารสนเทศออฟฟิศ</span>
-          </div>
+          <button 
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} 
+            className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition cursor-pointer"
+            title={isSidebarCollapsed ? "ขยายแถบเมนู" : "ย่อแถบเมนู"}
+            id="btn-sidebar-toggle"
+          >
+            {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          </button>
         </div>
 
         {/* User Session Info Card (No Switcher) */}
-        <div className="my-4 px-3 py-3 bg-slate-800/50 rounded-xl border border-slate-800/80 flex items-center gap-3" id="user-session-info-card">
+        <div className={`my-4 ${isSidebarCollapsed ? 'px-1 py-2 justify-center' : 'px-3 py-3'} bg-slate-800/50 rounded-xl border border-slate-800/80 flex items-center gap-3 overflow-hidden transition-all duration-300`} id="user-session-info-card">
           <div className="w-9 h-9 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center justify-center font-bold text-xs shadow-sm overflow-hidden flex-shrink-0">
             {currentUser?.role === 'admin' ? (
               'AD'
@@ -994,17 +1032,19 @@ export default function App() {
               )
             )}
           </div>
-          <div className="min-w-0">
-            <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider leading-none mb-1">
-              {currentUser?.role === 'admin' ? 'SYSTEM ADMIN' : 'STAFF MEMBER'}
-            </span>
-            <span className="block text-white font-semibold text-xs truncate" title={currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : `${activeEmployeeDetail?.firstName || 'พนักงาน'} ${activeEmployeeDetail?.lastName || ''}`}>
-              {currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : `${activeEmployeeDetail?.firstName || 'พนักงาน'} ${activeEmployeeDetail?.lastName || ''}`}
-            </span>
-            <span className="block text-[10px] text-slate-400 font-mono truncate">
-              {currentUser?.role === 'admin' ? 'IT / HR Dept' : currentUser?.employeeId}
-            </span>
-          </div>
+          {!isSidebarCollapsed && (
+            <div className="min-w-0 transition-all duration-300">
+              <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider leading-none mb-1">
+                {currentUser?.role === 'admin' ? 'SYSTEM ADMIN' : 'STAFF MEMBER'}
+              </span>
+              <span className="block text-white font-semibold text-xs truncate" title={currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : `${activeEmployeeDetail?.firstName || 'พนักงาน'} ${activeEmployeeDetail?.lastName || ''}`}>
+                {currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : `${activeEmployeeDetail?.firstName || 'พนักงาน'} ${activeEmployeeDetail?.lastName || ''}`}
+              </span>
+              <span className="block text-[10px] text-slate-400 font-mono truncate">
+                {currentUser?.role === 'admin' ? 'IT / HR Dept' : currentUser?.employeeId}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Links stack */}
@@ -1018,54 +1058,64 @@ export default function App() {
                   setActiveTab(item.id);
                   setIsMobileMenuOpen(false);
                 }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-4 py-3'} rounded-xl text-sm font-medium transition-all duration-300 ${
                   IsActive 
                     ? 'bg-blue-600 text-white shadow-md' 
                     : 'text-slate-400 hover:text-white hover:bg-slate-800'
                 }`}
+                title={isSidebarCollapsed ? item.label : undefined}
               >
-                <item.icon className="w-5 h-5" />
-                <span>{item.label}</span>
+                <item.icon className="w-5 h-5 flex-shrink-0" />
+                {!isSidebarCollapsed && <span className="transition-all duration-300">{item.label}</span>}
               </button>
             );
           })}
         </nav>
 
         {/* Sidebar Footer details */}
-        <div className="pt-4 border-t border-slate-800 text-xs text-slate-500 space-y-2">
-          <p className="font-mono truncate text-slate-400 px-1" title={settings.companyName}>
-            🏢 {settings.companyName}
-          </p>
-          <div className="bg-slate-800/40 p-3 rounded-xl border border-slate-800/50 flex flex-col gap-1 text-[10px] text-slate-400 mb-2">
-            <span className="text-slate-300 font-semibold">เวลาทำงาน:</span>
-            <span>⏱️ {settings.workHoursStart} - {settings.workHoursEnd} น.</span>
-            <span>📅 {settings.workDays.join(', ')}</span>
-          </div>
-
-          {/* PWA Install Promo Box inside Sidebar Footer */}
-          {!isStandaloneApp && (
-            <div className="bg-gradient-to-br from-blue-950/40 to-slate-800/40 p-3 rounded-xl border border-blue-900/30 flex flex-col gap-2 mb-2">
-              <div className="flex items-center gap-1.5 text-blue-400 font-semibold text-[10px]">
-                <Smartphone className="w-3.5 h-3.5 animate-pulse" />
-                <span>พร้อมติดตั้งบนอุปกรณ์นี้</span>
-              </div>
-              <p className="text-[10px] text-slate-400 leading-tight">
-                ติดตั้งระบบเพื่อให้เปิดใช้งานได้รวดเร็วดุจแอปจริงบนมือถือและพีซีของคุณ
+        <div className={`pt-4 border-t border-slate-800 text-xs text-slate-500 ${isSidebarCollapsed ? 'space-y-4' : 'space-y-2'} transition-all duration-300`}>
+          {!isSidebarCollapsed ? (
+            <>
+              <p className="font-mono truncate text-slate-400 px-1" title={settings.companyName}>
+                🏢 {settings.companyName}
               </p>
-              <button
-                type="button"
-                onClick={handleTriggerInstall}
-                className="w-full flex items-center justify-center gap-1.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-lg transition-all shadow-md active:scale-95 cursor-pointer"
-              >
-                <Download className="w-3 h-3" />
-                ติดตั้งแอปพลิเคชัน
-              </button>
-            </div>
-          )}
-          {isStandaloneApp && (
-            <div className="bg-slate-800/50 p-2.5 rounded-xl border border-slate-800 flex items-center gap-2 text-emerald-400 text-[10px] mb-2 font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-              <span>📱 เปิดใช้งานในโหมดแอปพลิเคชันแล้ว</span>
+              <div className="bg-slate-800/40 p-3 rounded-xl border border-slate-800/50 flex flex-col gap-1 text-[10px] text-slate-400 mb-2">
+                <span className="text-slate-300 font-semibold">เวลาทำงาน:</span>
+                <span>⏱️ {settings.workHoursStart} - {settings.workHoursEnd} น.</span>
+                <span>📅 {settings.workDays.join(', ')}</span>
+              </div>
+
+              {/* PWA Install Promo Box inside Sidebar Footer */}
+              {!isStandaloneApp && (
+                <div className="bg-gradient-to-br from-blue-950/40 to-slate-800/40 p-3 rounded-xl border border-blue-900/30 flex flex-col gap-2 mb-2">
+                  <div className="flex items-center gap-1.5 text-blue-400 font-semibold text-[10px]">
+                    <Smartphone className="w-3.5 h-3.5 animate-pulse" />
+                    <span>พร้อมติดตั้งบนอุปกรณ์นี้</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-tight">
+                    ติดตั้งระบบเพื่อให้เปิดใช้งานได้รวดเร็วดุจแอปจริงบนมือถือและพีซีของคุณ
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleTriggerInstall}
+                    className="w-full flex items-center justify-center gap-1.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-lg transition-all shadow-md active:scale-95 cursor-pointer"
+                  >
+                    <Download className="w-3 h-3" />
+                    ติดตั้งแอปพลิเคชัน
+                  </button>
+                </div>
+              )}
+              {isStandaloneApp && (
+                <div className="bg-slate-800/50 p-2.5 rounded-xl border border-slate-800 flex items-center gap-2 text-emerald-400 text-[10px] mb-2 font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                  <span>📱 เปิดใช้งานในโหมดแอปพลิเคชันแล้ว</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-3 mb-2">
+              <span className="text-slate-400 text-center text-sm cursor-help" title={settings.companyName}>🏢</span>
+              <span className="text-slate-400 text-center text-sm cursor-help" title={`เวลาทำงาน: ${settings.workHoursStart} - ${settings.workHoursEnd} น. (${settings.workDays.join(', ')})`}>⏱️</span>
             </div>
           )}
           
@@ -1081,11 +1131,12 @@ export default function App() {
                 }
               );
             }}
-            className="w-full flex items-center justify-center gap-2 py-2 bg-rose-950/20 hover:bg-rose-900/60 border border-rose-950/60 hover:border-rose-850 text-slate-300 hover:text-white text-xs font-semibold rounded-xl transition cursor-pointer"
+            className={`w-full flex items-center justify-center ${isSidebarCollapsed ? 'p-2' : 'gap-2 py-2'} bg-rose-950/20 hover:bg-rose-900/60 border border-rose-950/60 hover:border-rose-850 text-slate-300 hover:text-white text-xs font-semibold rounded-xl transition-all cursor-pointer`}
             id="sidebar-btn-logout"
+            title={isSidebarCollapsed ? "ออกจากระบบ" : undefined}
           >
-            <LogOut className="w-3.5 h-3.5 text-rose-450" />
-            ออกจากระบบ
+            <LogOut className="w-3.5 h-3.5 text-rose-450 flex-shrink-0" />
+            {!isSidebarCollapsed && <span>ออกจากระบบ</span>}
           </button>
         </div>
       </aside>
@@ -1372,6 +1423,8 @@ export default function App() {
                   settings={settings}
                   onUpdateSettings={handleUpdateSettings}
                   onUpdateSupplyItems={handleUpdateSupplyItems}
+                  onUpdateSupplyItem={handleUpdateSupplyItem}
+                  onDeleteSupplyItem={handleDeleteSupplyItem}
                 />
               )}
 

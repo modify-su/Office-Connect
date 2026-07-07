@@ -84,6 +84,9 @@ export interface SystemSettings {
     personal: number;
   };
   hasOvertime: boolean;
+  otStartTime?: string;
+  otRate?: number;
+  lateThresholdMins?: number;
   menuPermissions?: Record<string, 'all' | 'admin_only'>;
   departments?: string[];
   loginLogoUrl?: string;
