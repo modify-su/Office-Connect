@@ -55,13 +55,13 @@ export default function Dashboard({
   // Calculate statistics (Admin)
   const totalEmployees = employees.length;
   const activeEmployees = employees.filter(e => e.status === 'active').length;
-  const pendingLeaves = leaveRequests.filter(l => l.status === 'pending').length;
+  const pendingLeaves = leaveRequests.filter(l => l.status === 'pending' || l.status === 'pending_manager').length;
   const lowStockItems = supplyItems.filter(s => s.stock <= s.minStock).length;
   const pendingSupplies = supplyRequests.filter(s => s.status === 'pending').length;
 
   // Calculate statistics (Employee)
   const myLeaves = leaveRequests.filter(l => l.employeeId === currentUser?.employeeId);
-  const myPendingLeaves = myLeaves.filter(l => l.status === 'pending').length;
+  const myPendingLeaves = myLeaves.filter(l => l.status === 'pending' || l.status === 'pending_manager').length;
   const mySupplies = supplyRequests.filter(s => s.employeeId === currentUser?.employeeId);
   const myPendingSupplies = mySupplies.filter(s => s.status === 'pending').length;
 
@@ -490,11 +490,19 @@ export default function Dashboard({
                           <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                             act.status === 'approved' 
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                              : act.status === 'pending_manager'
+                              ? 'bg-indigo-50 text-indigo-700 border border-indigo-100'
                               : act.status === 'pending'
                               ? 'bg-amber-50 text-amber-700 border border-amber-100'
                               : 'bg-rose-50 text-rose-700 border border-rose-100'
                           }`}>
-                            {act.status === 'approved' ? 'อนุมัติแล้ว' : act.status === 'pending' ? 'รออนุมัติ' : 'ปฏิเสธ'}
+                            {act.status === 'approved' 
+                              ? 'อนุมัติสำเร็จ' 
+                              : act.status === 'pending_manager' 
+                              ? 'รออนุมัติสุดท้าย (ผู้จัดการ)' 
+                              : act.status === 'pending' 
+                              ? 'รอพิจารณา (HR)' 
+                              : 'ปฏิเสธ'}
                           </span>
                         </div>
                       </div>

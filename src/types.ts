@@ -26,7 +26,7 @@ export interface Employee {
 }
 
 export type LeaveType = 'sick' | 'annual' | 'personal' | 'maternity' | 'other' | 'swap';
-export type LeaveStatus = 'pending' | 'approved' | 'rejected';
+export type LeaveStatus = 'pending' | 'pending_manager' | 'approved' | 'rejected';
 
 export interface LeaveRequest {
   id: string;
@@ -41,6 +41,10 @@ export interface LeaveRequest {
   createdAt: string;
   reviewedBy?: string;
   reviewedAt?: string;
+  hrApprovedBy?: string;
+  hrApprovedAt?: string;
+  managerApprovedBy?: string;
+  managerApprovedAt?: string;
   swapFromDate?: string;
   swapToDate?: string;
 }
@@ -97,6 +101,8 @@ export interface SystemSettings {
 
 export interface UserAccountPermissions {
   canApproveLeave?: boolean;
+  canApproveLeaveHR?: boolean;
+  canApproveLeaveManager?: boolean;
   canApproveSupply?: boolean;
   canManageEmployees?: boolean;
   canManageSettings?: boolean;

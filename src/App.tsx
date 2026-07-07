@@ -540,13 +540,51 @@ export default function App() {
   };
 
   const handleApproveLeave = (id: string) => {
+    const targetLeave = leaveRequests.find(l => l.id === id);
+    if (!targetLeave) return;
+
+    const isAdmin = currentUser?.role === 'admin';
+    const canHR = isAdmin || currentUser?.permissions?.canApproveLeaveHR || currentUser?.permissions?.canApproveLeave;
+    const canManager = isAdmin || currentUser?.permissions?.canApproveLeaveManager;
+
+    let nextStatus = targetLeave.status;
+    let updatedFields: Partial<LeaveRequest> = {};
+
+    if (targetLeave.status === 'pending') {
+      if (!canHR) {
+        triggerToast('เฉพาะฝ่ายบุคคล (HR) ที่ได้รับสิทธิ์ จึงจะอนุมัติขั้นแรกได้');
+        return;
+      }
+      nextStatus = 'pending_manager';
+      updatedFields = {
+        status: 'pending_manager',
+        hrApprovedBy: currentUser?.name || 'ฝ่ายบุคคล (HR)',
+        hrApprovedAt: new Date().toISOString().split('T')[0],
+        reviewedBy: currentUser?.name || 'ฝ่ายบุคคล (HR)',
+        reviewedAt: new Date().toISOString().split('T')[0]
+      };
+    } else if (targetLeave.status === 'pending_manager') {
+      if (!canManager) {
+        triggerToast('เฉพาะผู้จัดการ (Manager) ที่ได้รับสิทธิ์ จึงจะอนุมัติขั้นสุดท้ายได้');
+        return;
+      }
+      nextStatus = 'approved';
+      updatedFields = {
+        status: 'approved',
+        managerApprovedBy: currentUser?.name || 'ผู้จัดการ',
+        managerApprovedAt: new Date().toISOString().split('T')[0],
+        reviewedBy: currentUser?.name || 'ผู้จัดการ',
+        reviewedAt: new Date().toISOString().split('T')[0]
+      };
+    } else {
+      return;
+    }
+
     const updatedLeaves = leaveRequests.map(l => {
       if (l.id === id) {
         const u = { 
           ...l, 
-          status: 'approved' as const,
-          reviewedBy: 'ฝ่ายบุคคล (Admin)',
-          reviewedAt: new Date().toISOString().split('T')[0]
+          ...updatedFields
         };
         saveLeaveRequestCloud(u);
         return u;
@@ -555,9 +593,7 @@ export default function App() {
     });
     setLeaveRequests(updatedLeaves);
 
-    // Also look up employee and temporarily set status to 'leave'
-    const targetLeave = leaveRequests.find(l => l.id === id);
-    if (targetLeave) {
+    if (nextStatus === 'approved') {
       const updatedEmployees = employees.map(emp => {
         if (emp.employeeId === targetLeave.employeeId) {
           const u = { ...emp, status: 'leave' as const };
@@ -568,16 +604,22 @@ export default function App() {
       });
       setEmployees(updatedEmployees);
       saveStoredData({ leaveRequests: updatedLeaves, employees: updatedEmployees });
+      triggerToast('ผู้จัดการอนุมัติขั้นสุดท้ายสำเร็จ เปลี่ยนสถานะพนักงานเป็นลาพักผ่อนเรียบร้อยแล้ว');
     } else {
       saveStoredData({ leaveRequests: updatedLeaves });
+      triggerToast('HR อนุมัติขั้นแรกสำเร็จ ส่งคำขอไปยังผู้จัดการเพื่อการอนุมัติสุดท้าย');
     }
-    triggerToast('อนุมัติการลาพักผ่อนและปรับปรุงสิทธิ์เรียบร้อยแล้ว');
   };
 
   const handleRejectLeave = (id: string) => {
     const nextList = leaveRequests.map(l => {
       if (l.id === id) {
-        const u = { ...l, status: 'rejected' as const };
+        const u = { 
+          ...l, 
+          status: 'rejected' as const,
+          reviewedBy: currentUser?.name || 'ฝ่ายบุคคล/ผู้จัดการ',
+          reviewedAt: new Date().toISOString().split('T')[0]
+        };
         saveLeaveRequestCloud(u);
         return u;
       }
@@ -585,7 +627,7 @@ export default function App() {
     });
     setLeaveRequests(nextList);
     saveStoredData({ leaveRequests: nextList });
-    triggerToast('ปฏิเสธคำขอลาพักร้อนเรียบร้อยแล้ว');
+    triggerToast('ปฏิเสธคำขอการลาพักผ่อนเรียบร้อยแล้ว');
   };
 
   const handleAddSupplyItem = (item: Omit<SupplyItem, 'id' | 'code'>) => {

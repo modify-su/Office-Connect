@@ -67,6 +67,8 @@ export default function SettingsSection({
   const [selectedPermsAccount, setSelectedPermsAccount] = useState<UserAccount | null>(null);
   const [modalRole, setModalRole] = useState<'admin' | 'employee'>('employee');
   const [modalCanApproveLeave, setModalCanApproveLeave] = useState(false);
+  const [modalCanApproveLeaveHR, setModalCanApproveLeaveHR] = useState(false);
+  const [modalCanApproveLeaveManager, setModalCanApproveLeaveManager] = useState(false);
   const [modalCanApproveSupply, setModalCanApproveSupply] = useState(false);
   const [modalCanManageEmployees, setModalCanManageEmployees] = useState(false);
   const [modalCanManageSettings, setModalCanManageSettings] = useState(false);
@@ -77,6 +79,8 @@ export default function SettingsSection({
     setSelectedPermsAccount(acc);
     setModalRole(acc.role);
     setModalCanApproveLeave(acc.permissions?.canApproveLeave || false);
+    setModalCanApproveLeaveHR(acc.permissions?.canApproveLeaveHR ?? acc.permissions?.canApproveLeave ?? false);
+    setModalCanApproveLeaveManager(acc.permissions?.canApproveLeaveManager ?? acc.permissions?.canApproveLeave ?? false);
     setModalCanApproveSupply(acc.permissions?.canApproveSupply || false);
     setModalCanManageEmployees(acc.permissions?.canManageEmployees || false);
     setModalCanManageSettings(acc.permissions?.canManageSettings || false);
@@ -88,6 +92,8 @@ export default function SettingsSection({
     if (type === 'hr') {
       setModalRole('employee');
       setModalCanApproveLeave(true);
+      setModalCanApproveLeaveHR(true);
+      setModalCanApproveLeaveManager(false);
       setModalCanApproveSupply(false);
       setModalCanManageEmployees(true);
       setModalCanManageSettings(false);
@@ -96,6 +102,8 @@ export default function SettingsSection({
     } else if (type === 'inventory') {
       setModalRole('employee');
       setModalCanApproveLeave(false);
+      setModalCanApproveLeaveHR(false);
+      setModalCanApproveLeaveManager(false);
       setModalCanApproveSupply(true);
       setModalCanManageEmployees(false);
       setModalCanManageSettings(false);
@@ -104,6 +112,8 @@ export default function SettingsSection({
     } else if (type === 'general') {
       setModalRole('employee');
       setModalCanApproveLeave(false);
+      setModalCanApproveLeaveHR(false);
+      setModalCanApproveLeaveManager(false);
       setModalCanApproveSupply(false);
       setModalCanManageEmployees(false);
       setModalCanManageSettings(false);
@@ -112,6 +122,8 @@ export default function SettingsSection({
     } else if (type === 'coadmin') {
       setModalRole('employee');
       setModalCanApproveLeave(true);
+      setModalCanApproveLeaveHR(true);
+      setModalCanApproveLeaveManager(true);
       setModalCanApproveSupply(true);
       setModalCanManageEmployees(true);
       setModalCanManageSettings(true);
@@ -127,7 +139,9 @@ export default function SettingsSection({
         ...selectedPermsAccount,
         role: modalRole,
         permissions: {
-          canApproveLeave: modalCanApproveLeave,
+          canApproveLeave: modalCanApproveLeaveHR || modalCanApproveLeaveManager,
+          canApproveLeaveHR: modalCanApproveLeaveHR,
+          canApproveLeaveManager: modalCanApproveLeaveManager,
           canApproveSupply: modalCanApproveSupply,
           canManageEmployees: modalCanManageEmployees,
           canManageSettings: modalCanManageSettings,
@@ -1478,16 +1492,30 @@ export default function SettingsSection({
                       สิทธิ์การใช้งานและการดำเนินการย่อย (Granular Permissions)
                     </label>
 
-                    {/* Can approve leaves */}
+                    {/* Can approve leaves - HR */}
                     <div className="flex items-center justify-between p-2.5 bg-slate-50/60 rounded-xl border border-slate-100">
                       <div>
-                        <span className="text-xs font-bold text-slate-700 block">อนุมัติคำขอลางานพนักงาน</span>
-                        <span className="text-[10px] text-slate-400">อนุญาตให้กดยืนยัน อนุมัติ หรือปฏิเสธใบคำลาของพนักงานรายอื่น</span>
+                        <span className="text-xs font-bold text-slate-700 block">อนุมัติการลาขั้นแรก (ฝ่ายบุคคล / HR)</span>
+                        <span className="text-[10px] text-slate-400">อนุญาตให้พิจารณากลั่นกรองและอนุมัติการลาขั้นแรก ก่อนส่งให้ผู้จัดการ</span>
                       </div>
                       <input
                         type="checkbox"
-                        checked={modalCanApproveLeave}
-                        onChange={(e) => setModalCanApproveLeave(e.target.checked)}
+                        checked={modalCanApproveLeaveHR}
+                        onChange={(e) => setModalCanApproveLeaveHR(e.target.checked)}
+                        className="w-4 h-4 text-indigo-600 border-slate-200 rounded focus:ring-indigo-500 cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Can approve leaves - Manager */}
+                    <div className="flex items-center justify-between p-2.5 bg-slate-50/60 rounded-xl border border-slate-100">
+                      <div>
+                        <span className="text-xs font-bold text-slate-700 block">อนุมัติการลาขั้นสุดท้าย (ผู้จัดการ / Manager)</span>
+                        <span className="text-[10px] text-slate-400">อนุญาตให้พิจารณาอนุมัติขั้นสุดท้ายเพื่อให้พนักงานสามารถหยุดงานได้จริง</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={modalCanApproveLeaveManager}
+                        onChange={(e) => setModalCanApproveLeaveManager(e.target.checked)}
                         className="w-4 h-4 text-indigo-600 border-slate-200 rounded focus:ring-indigo-500 cursor-pointer"
                       />
                     </div>
