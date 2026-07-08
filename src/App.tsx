@@ -1492,6 +1492,8 @@ export default function App() {
                   onAddSupplyRequest={handleAddSupplyRequest}
                   supplyItems={supplyItems}
                   supplyRequests={supplyRequests}
+                  settings={settings}
+                  onUpdateSettings={handleUpdateSettings}
                 />
               )}
 

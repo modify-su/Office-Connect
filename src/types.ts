@@ -23,6 +23,7 @@ export interface Employee {
   address: string;
   emergencyContact: EmergencyContact;
   verificationStatus?: 'verified' | 'pending';
+  lineUserId?: string;
 }
 
 export type LeaveType = 'sick' | 'annual' | 'personal' | 'maternity' | 'other' | 'swap';
@@ -97,6 +98,9 @@ export interface SystemSettings {
   loginTitle?: string;
   loginSubtitle?: string;
   supplyCategories?: string[];
+  lineChannelToken?: string;
+  lineChannelSecret?: string;
+  lineWebhookUrl?: string;
 }
 
 export interface UserAccountPermissions {

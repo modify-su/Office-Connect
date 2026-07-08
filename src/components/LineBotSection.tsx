@@ -20,7 +20,7 @@ import {
   Info,
   Package
 } from 'lucide-react';
-import { Employee, LeaveRequest, AttendanceRecord, UserAccount, LeaveType, SupplyItem, SupplyRequest } from '../types';
+import { Employee, LeaveRequest, AttendanceRecord, UserAccount, LeaveType, SupplyItem, SupplyRequest, SystemSettings } from '../types';
 
 interface LineBotSectionProps {
   currentUser: UserAccount | null;
@@ -32,6 +32,8 @@ interface LineBotSectionProps {
   onAddSupplyRequest?: (req: Omit<SupplyRequest, 'id' | 'createdAt' | 'status'>) => void;
   supplyItems?: SupplyItem[];
   supplyRequests?: SupplyRequest[];
+  settings: SystemSettings;
+  onUpdateSettings: (settings: SystemSettings) => void;
 }
 
 interface Message {
@@ -123,12 +125,15 @@ export default function LineBotSection({
   attendanceRecords,
   onAddSupplyRequest,
   supplyItems = [],
-  supplyRequests = []
+  supplyRequests = [],
+  settings,
+  onUpdateSettings
 }: LineBotSectionProps) {
   // Config state
-  const [webhookUrl, setWebhookUrl] = useState('https://ais-dev-bmco3xexmw2r26vzq6bz4v-713032521366.asia-southeast1.run.app/api/line/webhook');
-  const [channelToken, setChannelToken] = useState('eyJhY2Nlc3NUb2tlbiI6ImxpbmUtYm90LWNoYW5uZWwtYWNjZXNzLXRva2VuLXNpbXVsYXRlZC0yMDI2In0=');
-  const [channelSecret, setChannelSecret] = useState('8f92a4e5100fbd451833aa3b34ff60b3');
+  const defaultWebhook = settings.lineWebhookUrl || (typeof window !== 'undefined' ? `${window.location.origin}/api/line/webhook` : 'https://ais-dev-bmco3xexmw2r26vzq6bz4v-713032521366.asia-southeast1.run.app/api/line/webhook');
+  const [webhookUrl, setWebhookUrl] = useState(defaultWebhook);
+  const [channelToken, setChannelToken] = useState(settings.lineChannelToken || 'eyJhY2Nlc3NUb2tlbiI6ImxpbmUtYm90LWNoYW5uZWwtYWNjZXNzLXRva2VuLXNpbXVsYXRlZC0yMDI2In0=');
+  const [channelSecret, setChannelSecret] = useState(settings.lineChannelSecret || '8f92a4e5100fbd451833aa3b34ff60b3');
   const [isBotActive, setIsBotActive] = useState(true);
   const [isCopied, setIsCopied] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState<'simulator' | 'config' | 'guide'>('simulator');
@@ -919,7 +924,15 @@ export default function LineBotSection({
                 <div className="pt-2">
                   <button
                     type="button"
-                    onClick={() => alert('บันทึกการตั้งค่าลงฐานข้อมูลและอัปเกรดความมั่นคงปลอดภัยเรียบร้อยแล้ว')}
+                    onClick={() => {
+                      onUpdateSettings({
+                        ...settings,
+                        lineChannelToken: channelToken,
+                        lineChannelSecret: channelSecret,
+                        lineWebhookUrl: webhookUrl
+                      });
+                      alert('🎉 บันทึกการตั้งค่า LINE Webhook และ Token ลงฐานข้อมูลระบบ เรียบร้อยแล้ว!');
+                    }}
                     className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition shadow active:scale-95 cursor-pointer"
                   >
                     บันทึกการเชื่อมโยงระบบ

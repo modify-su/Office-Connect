@@ -49,7 +49,10 @@ export const defaultSettings: SystemSettings = {
     'เวชภัณฑ์',
     'เทคโนโลยี',
     'อื่นๆ'
-  ]
+  ],
+  lineChannelToken: 'eyJhY2Nlc3NUb2tlbiI6ImxpbmUtYm90LWNoYW5uZWwtYWNjZXNzLXRva2VuLXNpbXVsYXRlZC0yMDI2In0=',
+  lineChannelSecret: '8f92a4e5100fbd451833aa3b34ff60b3',
+  lineWebhookUrl: 'https://ais-dev-bmco3xexmw2r26vzq6bz4v-713032521366.asia-southeast1.run.app/api/line/webhook'
 };
 
 export const initialAccounts: UserAccount[] = [
