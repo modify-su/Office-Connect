@@ -32,6 +32,16 @@ interface LoginAuthProps {
 
 type AuthMode = 'login' | 'register' | 'forgot' | 'first-login-change-password';
 
+const formatPhoneNumber = (value: string): string => {
+  const clean = value.replace(/\D/g, '');
+  const trimmed = clean.slice(0, 10);
+  const parts = [];
+  if (trimmed.length > 0) parts.push(trimmed.substring(0, 3));
+  if (trimmed.length > 3) parts.push(trimmed.substring(3, 6));
+  if (trimmed.length > 6) parts.push(trimmed.substring(6, 10));
+  return parts.join('-');
+};
+
 export default function LoginAuth({
   accounts,
   employees,
@@ -610,7 +620,7 @@ export default function LoginAuth({
                     type="text"
                     placeholder="08X-XXX-XXXX"
                     value={regPhone}
-                    onChange={(e) => setRegPhone(e.target.value)}
+                    onChange={(e) => setRegPhone(formatPhoneNumber(e.target.value))}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white"
                     id="register-input-phone"
                   />

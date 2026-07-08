@@ -25,6 +25,22 @@ import {
 } from 'recharts';
 import { Employee, LeaveRequest, SupplyItem, SupplyRequest, UserAccount } from '../types';
 
+const formatThaiDate = (dateStr: string): string => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+  
+  const BEYear = year + 543;
+  const padDay = day < 10 ? `0${day}` : `${day}`;
+  const padMonth = month < 10 ? `0${month}` : `${month}`;
+  
+  return `${padDay}/${padMonth}/${BEYear}`;
+};
+
 interface DashboardProps {
   employees: Employee[];
   leaveRequests: LeaveRequest[];
@@ -485,7 +501,7 @@ export default function Dashboard({
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-slate-400 flex items-center gap-1 font-mono">
                             <Clock className="w-3 h-3" />
-                            {act.date}
+                            {formatThaiDate(act.date)}
                           </span>
                           <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                             act.status === 'approved' 

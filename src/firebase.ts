@@ -1,7 +1,9 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { 
-  getFirestore, 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager,
   doc, 
   getDocFromServer 
 } from 'firebase/firestore';
@@ -17,7 +19,11 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app, config.firestoreDatabaseId || '(default)');
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+}, config.firestoreDatabaseId || '(default)');
 const auth = getAuth(app);
 
 export enum OperationType {
@@ -47,8 +53,16 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorCode = (error as any)?.code || '';
+  
+  const isPermissionError = 
+    errorCode === 'permission-denied' || 
+    errorMessage.toLowerCase().includes('permission') || 
+    errorMessage.toLowerCase().includes('insufficient');
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errorMessage,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -63,8 +77,12 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
+  
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  
+  if (isPermissionError) {
+    throw new Error(JSON.stringify(errInfo));
+  }
 }
 
 // Validate Connection to Firestore

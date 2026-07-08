@@ -33,6 +33,22 @@ import { SupplyItem, SupplyRequest, Employee, UserAccount, SystemSettings } from
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5Qrcode } from 'html5-qrcode';
 
+const formatThaiDate = (dateStr: string): string => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+  
+  const BEYear = year + 543;
+  const padDay = day < 10 ? `0${day}` : `${day}`;
+  const padMonth = month < 10 ? `0${month}` : `${month}`;
+  
+  return `${padDay}/${padMonth}/${BEYear}`;
+};
+
 interface SupplySectionProps {
   supplyItems: SupplyItem[];
   supplyRequests: SupplyRequest[];
@@ -111,7 +127,7 @@ export default function SupplySection({
   // Form states - Add Item
   const [formItemName, setFormItemName] = useState('');
   const [formCategory, setFormCategory] = useState('เครื่องเขียน');
-  const [formStock, setFormStock] = useState(1);
+  const [formStock, setFormStock] = useState(0);
   const [formMinStock, setFormMinStock] = useState(5);
   const [formUnit, setFormUnit] = useState('ชิ้น');
   const [formPrice, setFormPrice] = useState(10);
@@ -983,7 +999,7 @@ export default function SupplySection({
                           <p className="truncate text-xs text-slate-500" title={req.purpose}>{req.purpose}</p>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap font-mono text-center text-xs text-slate-500">
-                          {req.createdAt}
+                          {formatThaiDate(req.createdAt)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
@@ -1076,7 +1092,7 @@ export default function SupplySection({
                       </div>
                       <div>
                         <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">วันที่ส่งคำขอ</span>
-                        <p className="font-mono font-semibold text-slate-700 mt-0.5">{req.createdAt}</p>
+                        <p className="font-mono font-semibold text-slate-700 mt-0.5">{formatThaiDate(req.createdAt)}</p>
                       </div>
                     </div>
 
@@ -1176,38 +1192,27 @@ export default function SupplySection({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">สต็อกเริ่มต้น *</label>
-                  <input
-                    type="number"
-                    min={0}
-                    required
-                    value={formStock}
-                    onChange={(e) => setFormStock(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">จุดต่ำสุดที่เตือน *</label>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">จำนวนแจ้งเบิก *</label>
                   <input
                     type="number"
                     min={1}
                     required
                     value={formMinStock}
                     onChange={(e) => setFormMinStock(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">ราคาต่อหน่วย (฿)</label>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">ราคาต่อหน่วย (฿) *</label>
                   <input
                     type="number"
                     min={0}
                     required
                     value={formPrice}
                     onChange={(e) => setFormPrice(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
@@ -1342,7 +1347,7 @@ export default function SupplySection({
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">จุดต่ำสุดที่เตือน *</label>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">จำนวนแจ้งเบิก *</label>
                   <input
                     type="number"
                     min={1}

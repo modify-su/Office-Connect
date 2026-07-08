@@ -53,6 +53,28 @@ interface EmployeeSectionProps {
   onUpdateDepartments: (departments: string[]) => void;
 }
 
+const formatPhoneNumber = (value: string): string => {
+  const clean = value.replace(/\D/g, '');
+  const trimmed = clean.slice(0, 10);
+  const parts = [];
+  if (trimmed.length > 0) parts.push(trimmed.substring(0, 3));
+  if (trimmed.length > 3) parts.push(trimmed.substring(3, 6));
+  if (trimmed.length > 6) parts.push(trimmed.substring(6, 10));
+  return parts.join('-');
+};
+
+const formatCitizenId = (value: string): string => {
+  const clean = value.replace(/\D/g, '');
+  const trimmed = clean.slice(0, 13);
+  const parts = [];
+  if (trimmed.length > 0) parts.push(trimmed.substring(0, 1));
+  if (trimmed.length > 1) parts.push(trimmed.substring(1, 5));
+  if (trimmed.length > 5) parts.push(trimmed.substring(5, 10));
+  if (trimmed.length > 10) parts.push(trimmed.substring(10, 12));
+  if (trimmed.length > 12) parts.push(trimmed.substring(12, 13));
+  return parts.join('-');
+};
+
 export default function EmployeeSection({
   employees,
   onAddEmployee,
@@ -1009,7 +1031,7 @@ export default function EmployeeSection({
                     <input
                       type="text"
                       value={formPhone}
-                      onChange={(e) => setFormPhone(e.target.value)}
+                      onChange={(e) => setFormPhone(formatPhoneNumber(e.target.value))}
                       placeholder="เช่น 081-XXX-XXXX"
                       className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
@@ -1053,7 +1075,7 @@ export default function EmployeeSection({
                     <input
                       type="text"
                       value={formPersonalId}
-                      onChange={(e) => setFormPersonalId(e.target.value)}
+                      onChange={(e) => setFormPersonalId(formatCitizenId(e.target.value))}
                       placeholder="X-XXXX-XXXXX-XX-X"
                       className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
@@ -1127,7 +1149,7 @@ export default function EmployeeSection({
                     <input
                       type="text"
                       value={formEmergencyPhone}
-                      onChange={(e) => setFormEmergencyPhone(e.target.value)}
+                      onChange={(e) => setFormEmergencyPhone(formatPhoneNumber(e.target.value))}
                       placeholder="เช่น 089-XXX-XXXX"
                       className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />

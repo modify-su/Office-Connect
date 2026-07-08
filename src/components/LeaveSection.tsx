@@ -42,6 +42,22 @@ export const THAI_PUBLIC_HOLIDAYS = [
   { date: '2026-12-31', name: 'วันสิ้นปี (New Year\'s Eve)', type: 'public' }
 ];
 
+const formatThaiDate = (dateStr: string): string => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+  
+  const BEYear = year + 543;
+  const padDay = day < 10 ? `0${day}` : `${day}`;
+  const padMonth = month < 10 ? `0${month}` : `${month}`;
+  
+  return `${padDay}/${padMonth}/${BEYear}`;
+};
+
 interface LeaveSectionProps {
   leaveRequests: LeaveRequest[];
   employees: Employee[];
@@ -398,20 +414,20 @@ export default function LeaveSection({
                             </p>
                             <div className="flex items-center gap-2 mt-1 flex-wrap text-slate-700 font-mono">
                               <span className="bg-slate-50 border border-slate-200/60 px-2 py-0.5 rounded">
-                                📅 สลับมาทำงาน: <strong className="text-indigo-600">{req.swapFromDate}</strong>
+                                📅 สลับมาทำงาน: <strong className="text-indigo-600">{formatThaiDate(req.swapFromDate || '')}</strong>
                               </span>
                               <span className="text-slate-400">⇆</span>
                               <span className="bg-slate-50 border border-slate-200/60 px-2 py-0.5 rounded">
-                                🏖️ เปลี่ยนไปหยุดชดเชย: <strong className="text-emerald-600">{req.swapToDate}</strong>
+                                🏖️ เปลี่ยนไปหยุดชดเชย: <strong className="text-emerald-600">{formatThaiDate(req.swapToDate || '')}</strong>
                               </span>
                             </div>
                           </div>
                         ) : (
                           <p className="text-xs md:text-sm font-semibold text-slate-500 flex items-center gap-1.5 flex-wrap">
                             <span>ระยะเวลา: </span>
-                            <span className="font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{req.startDate}</span>
+                            <span className="font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{formatThaiDate(req.startDate)}</span>
                             <span>ถึง</span>
-                            <span className="font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{req.endDate}</span>
+                            <span className="font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{formatThaiDate(req.endDate)}</span>
                             <span className="text-blue-600 bg-blue-50 border border-blue-100 px-2 rounded-full font-bold">
                               รวม {req.days} วันทำการ
                             </span>
@@ -425,7 +441,7 @@ export default function LeaveSection({
                       {/* Status Indicator */}
                       <div className="flex flex-col items-start sm:items-center md:items-end gap-1">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-400 font-mono">ส่งเมื่อ: {req.createdAt}</span>
+                          <span className="text-xs text-slate-400 font-mono">ส่งเมื่อ: {formatThaiDate(req.createdAt)}</span>
                           <span className={`inline-flex items-center gap-1 text-xs font-bold px-3 py-1 rounded-full ${
                             req.status === 'approved' 
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
@@ -454,17 +470,17 @@ export default function LeaveSection({
                           <div className="text-[10px] text-slate-400 mt-1 space-y-0.5 text-left md:text-right font-medium">
                             {req.hrApprovedBy && (
                               <p className="text-amber-600">
-                                ✓ ผ่านขั้นแรกโดย HR: <strong className="font-semibold">{req.hrApprovedBy}</strong> {req.hrApprovedAt && `(${req.hrApprovedAt})`}
+                                ✓ ผ่านขั้นแรกโดย HR: <strong className="font-semibold">{req.hrApprovedBy}</strong> {req.hrApprovedAt && `(${formatThaiDate(req.hrApprovedAt)})`}
                               </p>
                             )}
                             {req.managerApprovedBy && (
                               <p className="text-emerald-600">
-                                ✓ อนุมัติสุดท้ายโดยผู้จัดการ: <strong className="font-semibold">{req.managerApprovedBy}</strong> {req.managerApprovedAt && `(${req.managerApprovedAt})`}
+                                ✓ อนุมัติสุดท้ายโดยผู้จัดการ: <strong className="font-semibold">{req.managerApprovedBy}</strong> {req.managerApprovedAt && `(${formatThaiDate(req.managerApprovedAt)})`}
                               </p>
                             )}
                             {req.status === 'rejected' && req.reviewedBy && (
                               <p className="text-rose-600 font-bold">
-                                ✗ ปฏิเสธโดย: {req.reviewedBy} {req.reviewedAt && `(${req.reviewedAt})`}
+                                ✗ ปฏิเสธโดย: {req.reviewedBy} {req.reviewedAt && `(${formatThaiDate(req.reviewedAt)})`}
                               </p>
                             )}
                           </div>

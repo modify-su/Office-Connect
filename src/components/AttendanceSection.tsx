@@ -27,6 +27,22 @@ import {
 } from 'lucide-react';
 import { Employee, UserAccount, AttendanceRecord, AttendanceType, SystemSettings } from '../types';
 
+const formatThaiDate = (dateStr: string): string => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+  
+  const BEYear = year + 543;
+  const padDay = day < 10 ? `0${day}` : `${day}`;
+  const padMonth = month < 10 ? `0${month}` : `${month}`;
+  
+  return `${padDay}/${padMonth}/${BEYear}`;
+};
+
 interface AttendanceSectionProps {
   attendanceRecords: AttendanceRecord[];
   employees: Employee[];
@@ -2163,7 +2179,7 @@ export default function AttendanceSection({
                     <tr key={rec.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="py-3 px-5 font-mono font-semibold text-slate-600">
                         <div className="flex items-center gap-1.5">
-                          <span>{rec.date}</span>
+                          <span>{formatThaiDate(rec.date)}</span>
                           {rec.date && (
                             <span className="text-[10px] font-sans font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-100/60 px-1.5 py-0.5 rounded">
                               วัน{getDayOfWeekThai(rec.date)}
@@ -2244,7 +2260,7 @@ export default function AttendanceSection({
                       <p className="text-slate-400 text-[9px] uppercase font-bold tracking-wider mb-0.5">วันและเวลาที่บันทึก</p>
                       <p className="font-mono font-bold text-slate-800 flex items-center gap-1">
                         <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                        {rec.date}
+                        {formatThaiDate(rec.date)}
                       </p>
                       <p className="font-mono font-bold text-indigo-600 mt-1 flex items-center gap-1 text-sm">
                         <Clock className="w-3.5 h-3.5" />
