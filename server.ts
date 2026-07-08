@@ -193,8 +193,8 @@ app.post('/api/line/webhook', async (req, res) => {
 
       // CASE A: User is not linked yet
       if (!matchedEmployee) {
-        // Try to match employee ID pattern (e.g. EMP-001 or link EMP-001 or เชื่อมต่อ EMP-001)
-        const empIdMatch = text.match(/EMP-\d+/i);
+        // Try to match employee ID pattern (e.g. AWA-001, EMP-001 or link AWA-001)
+        const empIdMatch = text.match(/[A-Z0-9]+-\d+/i) || text.match(/EMP-\d+/i);
         
         if (empIdMatch) {
           const empIdInput = empIdMatch[0].toUpperCase();
@@ -235,7 +235,7 @@ app.post('/api/line/webhook', async (req, res) => {
           await sendLineReply(replyToken, channelToken, [
             {
               type: 'text',
-              text: `สวัสดีครับ ยินดีต้อนรับสู่ระบบช่วยเหลือพนักงานผ่าน LINE Bot 🤖\n\n⚠️ ขณะนี้บัญชี LINE ของคุณยังไม่ได้เชื่อมโยงเข้ากับระบบพนักงาน\n\n👉 กรุณาเชื่อมโยงบัญชีโดยการพิมพ์รหัสพนักงานของคุณ เช่น:\n\nEMP-001\n\n(พิมพ์ส่งรหัสพนักงานของคุณเข้ามาได้เลยครับ)`
+              text: `สวัสดีครับ ยินดีต้อนรับสู่ระบบช่วยเหลือพนักงานผ่าน LINE Bot 🤖\n\n⚠️ ขณะนี้บัญชี LINE ของคุณยังไม่ได้เชื่อมโยงเข้ากับระบบพนักงาน\n\n👉 กรุณาเชื่อมโยงบัญชีโดยการพิมพ์รหัสพนักงานของคุณ เช่น:\n\nAWA-001 หรือ EMP-001\n\n(พิมพ์ส่งรหัสพนักงานของคุณเข้ามาได้เลยครับ)`
             }
           ]);
         }
@@ -635,6 +635,35 @@ async function seedBackendFirestore() {
         await setDoc(doc(db, 'employees', emp.id), emp);
       }
       console.log('Seeded initial employees from backend.');
+    }
+
+    // Always ensure AWA-001 exists
+    const awaDocRef = doc(db, 'employees', 'emp-004');
+    const awaSnap = await getDoc(awaDocRef);
+    if (!awaSnap.exists()) {
+      await setDoc(awaDocRef, {
+        id: 'emp-004',
+        employeeId: 'AWA-001',
+        firstName: 'ผู้ใช้งาน',
+        lastName: 'ทดสอบ (AWA)',
+        position: 'เจ้าหน้าที่ทดสอบระบบ',
+        department: 'เทคโนโลยีสารสนเทศ (IT)',
+        email: 'test.awa@office.co.th',
+        phone: '089-999-9999',
+        startDate: '2026-07-08',
+        status: 'active',
+        avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150',
+        personalId: '1100400567890',
+        birthDate: '1995-12-12',
+        address: 'กรุงเทพมหานคร',
+        emergencyContact: {
+          name: 'ผู้ติดต่อฉุกเฉิน',
+          relationship: 'เพื่อน',
+          phone: '089-999-9999'
+        },
+        verificationStatus: 'pending'
+      });
+      console.log('Successfully seeded employee AWA-001.');
     }
   } catch (error) {
     console.error('Error during backend seeding:', error);

@@ -96,8 +96,8 @@ export default function LineBotSection({
         const emp = employees.find(e => e.employeeId === simEmployeeId);
 
         if (!emp) {
-          // If not linked yet, check for EMP-xxx ID pattern
-          const empIdMatch = userMsg.match(/EMP-\d+/i);
+          // If not linked yet, check for employee ID pattern (e.g. AWA-001, EMP-001)
+          const empIdMatch = userMsg.match(/[A-Z0-9]+-\d+/i) || userMsg.match(/EMP-\d+/i);
           if (empIdMatch) {
             const matchedEmpId = empIdMatch[0].toUpperCase();
             const targetEmp = employees.find(e => e.employeeId?.toUpperCase() === matchedEmpId);
@@ -109,7 +109,7 @@ export default function LineBotSection({
               replyText = `❌ ไม่พบรหัสพนักงาน "${matchedEmpId}" ในระบบฐานข้อมูลของบริษัท กรุณาตรวจสอบรหัสพนักงานให้ถูกต้องและลองพิมพ์ใหม่อีกครั้งครับ`;
             }
           } else {
-            replyText = `สวัสดีครับ ยินดีต้อนรับสู่ระบบช่วยเหลือพนักงานผ่าน LINE Bot 🤖\n\n⚠️ ขณะนี้บัญชี LINE ของคุณยังไม่ได้เชื่อมโยงเข้ากับระบบพนักงาน\n\n👉 กรุณาเชื่อมโยงบัญชีโดยการพิมพ์รหัสพนักงานของคุณ เช่น:\n\nEMP-001\n\n(พิมพ์ส่งรหัสพนักงานของคุณเข้ามาได้เลยครับ)`;
+            replyText = `สวัสดีครับ ยินดีต้อนรับสู่ระบบช่วยเหลือพนักงานผ่าน LINE Bot 🤖\n\n⚠️ ขณะนี้บัญชี LINE ของคุณยังไม่ได้เชื่อมโยงเข้ากับระบบพนักงาน\n\n👉 กรุณาเชื่อมโยงบัญชีโดยการพิมพ์รหัสพนักงานของคุณ เช่น:\n\nAWA-001 หรือ EMP-001\n\n(พิมพ์ส่งรหัสพนักงานของคุณเข้ามาได้เลยครับ)`;
           }
         } else {
           // Process commands for linked employee

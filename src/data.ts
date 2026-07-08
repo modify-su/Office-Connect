@@ -66,6 +66,28 @@ export const initialEmployees: Employee[] = [
       phone: '087-654-3210'
     },
     verificationStatus: 'pending'
+  },
+  {
+    id: 'emp-004',
+    employeeId: 'AWA-001',
+    firstName: 'ผู้ใช้งาน',
+    lastName: 'ทดสอบ (AWA)',
+    position: 'เจ้าหน้าที่ทดสอบระบบ',
+    department: 'เทคโนโลยีสารสนเทศ (IT)',
+    email: 'test.awa@office.co.th',
+    phone: '089-999-9999',
+    startDate: '2026-07-08',
+    status: 'active',
+    avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150',
+    personalId: '1100400567890',
+    birthDate: '1995-12-12',
+    address: 'กรุงเทพมหานคร',
+    emergencyContact: {
+      name: 'ผู้ติดต่อฉุกเฉิน',
+      relationship: 'เพื่อน',
+      phone: '089-999-9999'
+    },
+    verificationStatus: 'pending'
   }
 ];
 
