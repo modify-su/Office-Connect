@@ -31,7 +31,15 @@ import {
   Package,
   FolderClosed,
   Archive,
-  CalendarDays
+  CalendarDays,
+  MessageSquare,
+  Bot,
+  AlertTriangle,
+  Copy,
+  Terminal,
+  Send,
+  Zap,
+  Check as CheckedIcon
 } from 'lucide-react';
 import { SystemSettings, UserAccount, Employee } from '../types';
 
@@ -192,6 +200,8 @@ export default function SettingsSection({
     if (val.startsWith('http') || val.startsWith('data:image')) return 'image';
     return 'emoji';
   });
+
+
   
   // Max leave days
   const [sickMax, setSickMax] = useState(settings.maxLeaveDays.sick);
@@ -363,6 +373,8 @@ export default function SettingsSection({
     }, 3000);
   };
 
+
+
   return (
     <div className="space-y-6" id="settings-section-container">
       {/* Header with Sub-tabs selector for System Settings vs Account settings */}
@@ -409,6 +421,7 @@ export default function SettingsSection({
             <Users className="w-4 h-4" />
             บัญชีผู้ใช้ & รหัสผ่าน
           </button>
+
         </div>
       </div>
 
@@ -1349,6 +1362,8 @@ export default function SettingsSection({
           </div>
         </div>
       )}
+
+
 
       {/* DETAILED USER PERMISSIONS MODAL */}
       {selectedPermsAccount && (

@@ -974,7 +974,7 @@ export default function App() {
     if (!currentUser) return false;
     if (currentUser.role === 'admin') return true;
     if (tabId === 'backup') return false;
-    if (tabId === 'settings') {
+    if (tabId === 'settings' || tabId === 'line-bot') {
       return !!currentUser.permissions?.canManageSettings;
     }
     // Check custom permissions first
@@ -998,14 +998,13 @@ export default function App() {
     { id: 'attendance', label: 'ระบบลงเวลาทำงาน', icon: Clock },
     { id: 'supplies', label: 'เบิกจ่ายพัสดุ', icon: Package },
     { id: 'documents', label: 'แฟ้มเอกสาร', icon: FolderClosed },
-    { id: 'line-bot', label: 'LINE Bot จัดการระบบ', icon: MessageSquare },
+    (currentUser?.role === 'admin' || currentUser?.permissions?.canManageSettings) && { id: 'line-bot', label: 'เชื่อมต่อ LINE Bot', icon: MessageSquare },
     (currentUser?.role === 'admin' || currentUser?.permissions?.canManageSettings) && { id: 'settings', label: 'ตั้งค่าระบบ', icon: SettingsIcon },
   ].filter(Boolean)
     .filter(item => {
       if (!currentUser) return false;
       if (currentUser.role === 'admin') return true;
-      if (item.id === 'settings') return !!currentUser.permissions?.canManageSettings;
-      if (item.id === 'line-bot') return true; // accessible to all employees for testing/running commands
+      if (item.id === 'settings' || item.id === 'line-bot') return !!currentUser.permissions?.canManageSettings;
       
       // Allow if user has explicit permission
       if (item.id === 'employees' && currentUser.permissions?.canManageEmployees) return true;
@@ -1329,7 +1328,7 @@ export default function App() {
         <div className="bg-white h-20 px-8 border-b border-slate-200 hidden md:flex items-center justify-between" id="top-status-bar">
           <div>
             <h1 className="text-2xl font-bold text-slate-900 transition-all font-sans">
-              {activeTab === 'dashboard' ? 'ภาพรวมระบบ' : activeTab === 'employees' ? (currentUser?.role === 'employee' ? 'ประวัติส่วนตัว' : 'ข้อมูลพนักงาน') : activeTab === 'leaves' ? 'การลางาน' : activeTab === 'attendance' ? 'ระบบลงเวลาทำงาน' : activeTab === 'supplies' ? 'เบิกจ่ายพัสดุ' : activeTab === 'documents' ? 'แฟ้มเอกสาร & ยื่นคำร้อง' : activeTab === 'line-bot' ? 'LINE Bot จัดการระบบ' : activeTab === 'archives' ? 'สรุปข้อมูลย้อนหลัง' : activeTab === 'backup' ? 'สำรอง & ซิงค์ข้อมูล' : 'ตั้งค่าระบบ'}
+              {activeTab === 'dashboard' ? 'ภาพรวมระบบ' : activeTab === 'employees' ? (currentUser?.role === 'employee' ? 'ประวัติส่วนตัว' : 'ข้อมูลพนักงาน') : activeTab === 'leaves' ? 'การลางาน' : activeTab === 'attendance' ? 'ระบบลงเวลาทำงาน' : activeTab === 'supplies' ? 'เบิกจ่ายพัสดุ' : activeTab === 'documents' ? 'แฟ้มเอกสาร & ยื่นคำร้อง' : activeTab === 'archives' ? 'สรุปข้อมูลย้อนหลัง' : activeTab === 'backup' ? 'สำรอง & ซิงค์ข้อมูล' : 'ตั้งค่าระบบ'}
             </h1>
             <p className="text-sm text-slate-500">
               {currentUser?.role === 'admin' ? (
@@ -1481,19 +1480,11 @@ export default function App() {
                 />
               )}
 
-              {activeTab === 'line-bot' && (
+              {activeTab === 'line-bot' && checkTabPermission('line-bot') && (
                 <LineBotSection
-                  currentUser={currentUser}
-                  employees={employees}
-                  onAddLeaveRequest={handleAddLeaveRequest}
-                  onAddAttendanceRecord={(record) => handleAddAttendance({ ...record, id: `att-${Date.now()}` })}
-                  leaveRequests={leaveRequests}
-                  attendanceRecords={attendanceRecords}
-                  onAddSupplyRequest={handleAddSupplyRequest}
-                  supplyItems={supplyItems}
-                  supplyRequests={supplyRequests}
                   settings={settings}
                   onUpdateSettings={handleUpdateSettings}
+                  employees={employees}
                 />
               )}
 

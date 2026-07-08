@@ -85,7 +85,7 @@ app.post('/api/line/webhook', async (req, res) => {
 
   const { events } = req.body;
   if (!events || events.length === 0) {
-    console.log('Webhook test connection or empty events array verified.');
+    console.log('Webhook verification call or empty events verified.');
     return;
   }
 
@@ -95,16 +95,34 @@ app.post('/api/line/webhook', async (req, res) => {
   }
 
   try {
-    // 2. Fetch current Line channel secret and token from SystemSettings
+    // 2. Fetch current settings
     const settingsDocRef = doc(db, 'settings', 'system');
     const settingsSnap = await getDoc(settingsDocRef);
-    let channelToken = 'eyJhY2Nlc3NUb2tlbiI6ImxpbmUtYm90LWNoYW5uZWwtYWNjZXNzLXRva2VuLXNpbXVsYXRlZC0yMDI2In0=';
     
+    let channelToken = '';
+    let workHoursStart = '08:30';
+    let workHoursEnd = '17:30';
+    let lateThresholdMins = 15;
+    let hasOvertime = false;
+    let otStartTime = '18:00';
+    let limits = { sick: 30, annual: 12, personal: 6 };
+
     if (settingsSnap.exists()) {
       const s = settingsSnap.data();
-      if (s.lineChannelToken) {
-        channelToken = s.lineChannelToken;
+      channelToken = s.lineChannelToken || '';
+      workHoursStart = s.workHoursStart || '08:30';
+      workHoursEnd = s.workHoursEnd || '17:30';
+      lateThresholdMins = s.lateThresholdMins !== undefined ? s.lateThresholdMins : 15;
+      hasOvertime = s.hasOvertime || false;
+      otStartTime = s.otStartTime || '18:00';
+      if (s.maxLeaveDays) {
+        limits = { ...limits, ...s.maxLeaveDays };
       }
+    }
+
+    // Fallback token for local testing / unconfigured settings
+    if (!channelToken) {
+      channelToken = 'eyJhY2Nlc3NUb2tlbiI6ImxpbmUtYm90LWNoYW5uZWwtYWNjZXNzLXRva2VuLXNpbXVsYXRlZC0yMDI2In0=';
     }
 
     // 3. Process each event
@@ -137,11 +155,11 @@ app.post('/api/line/webhook', async (req, res) => {
 
       // CASE A: User is not linked yet
       if (!matchedEmployee) {
-        // Try to match "link EMP-XXX" or "เชื่อมต่อ EMP-XXX"
-        const linkMatch = text.match(/link\s+(EMP-\d+)/i) || text.match(/เชื่อมต่อ\s+(EMP-\d+)/i);
+        // Try to match employee ID pattern (e.g. EMP-001 or link EMP-001 or เชื่อมต่อ EMP-001)
+        const empIdMatch = text.match(/EMP-\d+/i);
         
-        if (linkMatch) {
-          const empIdInput = linkMatch[1].toUpperCase();
+        if (empIdMatch) {
+          const empIdInput = empIdMatch[0].toUpperCase();
           let empToLink: any = null;
           let empToLinkDocId = '';
 
@@ -163,23 +181,23 @@ app.post('/api/line/webhook', async (req, res) => {
             await sendLineReply(replyToken, channelToken, [
               {
                 type: 'text',
-                text: `เชื่อมโยงบัญชีสำเร็จแล้วครับ! 🎉\n\nยินดีต้อนรับคุณ ${empToLink.firstName} ${empToLink.lastName} (${empToLink.position}) เข้าสู่ระบบช่วยเหลือพนักงานออฟฟิศผ่าน LINE Bot ประจำองค์กรครับ\n\nท่านสามารถพิมพ์คำสั่งต่อไปนี้เพื่อสั่งการระบบได้ทันที:\n• พิมพ์ "เข้างาน" หรือ "ออกงาน" เพื่อลงเวลา\n• พิมพ์ "เช็ควันลา" เพื่อตรวจสอบโควตาวันลา\n• พิมพ์ "ขอลา" เพื่อส่งใบลาเข้าระบบ`
+                text: `เชื่อมโยงบัญชีสำเร็จแล้วครับ! 🎉\n\nยินดีต้อนรับคุณ ${empToLink.firstName} ${empToLink.lastName} (${empToLink.position}) เข้าสู่ระบบช่วยเหลือพนักงานออฟฟิศผ่าน LINE Bot ประจำองค์กรครับ\n\nท่านสามารถพิมพ์คำสั่งต่อไปนี้เพื่อสั่งการระบบได้ทันที:\n• พิมพ์ "เข้างาน" เพื่อลงเวลาเข้างาน\n• พิมพ์ "ออกงาน" เพื่อลงเวลาออกงาน\n• พิมพ์ "เช็ควันลา" เพื่อตรวจสอบโควตาวันลาคงเหลือ\n• พิมพ์ "ขอลา" เพื่อส่งใบลาเข้าระบบ`
               }
             ]);
           } else {
             await sendLineReply(replyToken, channelToken, [
               {
                 type: 'text',
-                text: `❌ ไม่พบรหัสพนักงาน "${empIdInput}" ในฐานข้อมูลระบบของบริษัท กรุณาตรวจสอบรหัสพนักงานให้ถูกต้องและลองพิมพ์ใหม่อีกครั้งครับ`
+                text: `❌ ไม่พบรหัสพนักงาน "${empIdInput}" ในระบบฐานข้อมูลของบริษัท กรุณาตรวจสอบรหัสพนักงานให้ถูกต้องและลองพิมพ์ใหม่อีกครั้งครับ`
               }
             ]);
           }
         } else {
-          // Send linking guidance
+          // Send linking instructions
           await sendLineReply(replyToken, channelToken, [
             {
               type: 'text',
-              text: `สวัสดีครับ ยินดีต้อนรับสู่ระบบช่วยเหลือพนักงานผ่าน LINE Bot 🤖\n\n⚠️ ขณะนี้บัญชี LINE ของคุณยังไม่ได้รับการเชื่อมโยงเข้ากับระบบพนักงาน\n\n👉 กรุณาเชื่อมโยงบัญชีของคุณโดยการพิมพ์รหัสพนักงานของคุณในรูปแบบดังนี้:\n\nlink รหัสพนักงาน\n\nเช่น พิมพ์: link EMP-001\n(เปลี่ยน EMP-001 เป็นรหัสของคุณ)`
+              text: `สวัสดีครับ ยินดีต้อนรับสู่ระบบช่วยเหลือพนักงานผ่าน LINE Bot 🤖\n\n⚠️ ขณะนี้บัญชี LINE ของคุณยังไม่ได้เชื่อมโยงเข้ากับระบบพนักงาน\n\n👉 กรุณาเชื่อมโยงบัญชีโดยการพิมพ์รหัสพนักงานของคุณ เช่น:\n\nEMP-001\n\n(พิมพ์ส่งรหัสพนักงานของคุณเข้ามาได้เลยครับ)`
             }
           ]);
         }
@@ -188,9 +206,9 @@ app.post('/api/line/webhook', async (req, res) => {
       else {
         const textLower = text.toLowerCase();
 
-        // COMMAND: "เช็ควันลา" / "วันลา"
-        if (textLower.includes('เช็ควันลา') || textLower.includes('วันลา') || textLower.includes('โควตา')) {
-          const leavesCol = collection(db, 'leave_requests');
+        // COMMAND: "เช็ควันลา" / "วันลา" / "โควตา"
+        if (textLower.includes('เช็ควันลา') || textLower.includes('วันลา') || textLower.includes('โควตา') || textLower === 'leave') {
+          const leavesCol = collection(db, 'leaveRequests');
           const leavesSnap = await getDocs(leavesCol);
           
           let sickUsed = 0;
@@ -207,15 +225,6 @@ app.post('/api/line/webhook', async (req, res) => {
             }
           });
 
-          // System Limits
-          let limits = { sick: 30, annual: 12, personal: 6 };
-          if (settingsSnap.exists()) {
-            const s = settingsSnap.data();
-            if (s.maxLeaveDays) {
-              limits = { ...limits, ...s.maxLeaveDays };
-            }
-          }
-
           const responseText = `📊 สรุปโควตาวันลาของคุณ ${matchedEmployee.firstName} ${matchedEmployee.lastName}\n\n` +
                                `• ลาป่วย: ใช้ไป ${sickUsed}/${limits.sick} วัน (คงเหลือ ${limits.sick - sickUsed} วัน)\n` +
                                `• ลาพักร้อน: ใช้ไป ${annualUsed}/${limits.annual} วัน (คงเหลือ ${limits.annual - annualUsed} วัน)\n` +
@@ -223,127 +232,141 @@ app.post('/api/line/webhook', async (req, res) => {
 
           await sendLineReply(replyToken, channelToken, [{ type: 'text', text: responseText }]);
         } 
-        // COMMAND: "ลงชื่อเข้างาน" / "เข้างาน"
-        else if (textLower.includes('เข้างาน') || textLower.includes('ลงชื่อเข้างาน') || textLower.includes('checkin') || textLower.includes('check in')) {
+        // COMMAND: "เข้างาน" / "ลงชื่อเข้างาน" / "เช็คอิน" / "check in"
+        else if (textLower.includes('เข้างาน') || textLower.includes('ลงชื่อเข้างาน') || textLower.includes('checkin') || textLower.includes('check in') || textLower === 'clock in') {
+          // Bangkok Time calculation (UTC+7)
           const now = new Date();
-          // Thailand Local Time adjustments (Offset +7)
-          const localTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
-          const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
-          const timeStr = now.toTimeString().split(' ')[0].substring(0, 5); // HH:mm
+          const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+          const thailandTime = new Date(utc + (3600000 * 7));
+          
+          const dateStr = thailandTime.toISOString().split('T')[0]; // YYYY-MM-DD
+          const timeStr = thailandTime.toTimeString().split(' ')[0]; // HH:mm:ss
 
           // Check if already checked in today
-          const attCol = collection(db, 'attendance_records');
+          const attCol = collection(db, 'attendanceRecords');
           const attSnap = await getDocs(attCol);
           let todayRecord: any = null;
-          let todayRecordDocId = '';
 
           attSnap.forEach((docSnap) => {
             const r = docSnap.data();
-            if (r.employeeId === matchedEmployee.employeeId && r.date === dateStr) {
+            if (r.employeeId === matchedEmployee.employeeId && r.date === dateStr && (r.type === 'clock_in' || r.type === 'late')) {
               todayRecord = r;
-              todayRecordDocId = docSnap.id;
-            }
-          });
-
-          if (todayRecord && todayRecord.checkIn) {
-            await sendLineReply(replyToken, channelToken, [{
-              type: 'text',
-              text: `⏰ คุณได้บันทึกเวลาเข้างานของวันนี้เรียบร้อยแล้วครับ!\nเวลาเข้างาน: ${todayRecord.checkIn} น. / สถานะ: ${todayRecord.status === 'late' ? 'สาย' : 'ปกติ'}`
-            }]);
-          } else {
-            // Determine Status
-            let status = 'normal';
-            let threshold = 15; // 15 mins
-            let workHoursStart = '08:30';
-
-            if (settingsSnap.exists()) {
-              const s = settingsSnap.data();
-              if (s.workHoursStart) workHoursStart = s.workHoursStart;
-              if (s.lateThresholdMins !== undefined) threshold = s.lateThresholdMins;
-            }
-
-            const [startH, startM] = workHoursStart.split(':').map(Number);
-            const [checkH, checkM] = timeStr.split(':').map(Number);
-            const startTotal = (startH * 60) + startM + threshold;
-            const checkTotal = (checkH * 60) + checkM;
-
-            if (checkTotal > startTotal) {
-              status = 'late';
-            }
-
-            const newRecord = {
-              employeeId: matchedEmployee.employeeId,
-              employeeName: `${matchedEmployee.firstName} ${matchedEmployee.lastName}`,
-              date: dateStr,
-              checkIn: timeStr,
-              checkOut: '',
-              status,
-              overtimeMins: 0,
-              location: 'LINE Bot API',
-              device: 'LINE Mobile App',
-              notes: 'ลงเวลาผ่าน LINE Official Account'
-            };
-
-            await addDoc(collection(db, 'attendance_records'), newRecord);
-
-            await sendLineReply(replyToken, channelToken, [{
-              type: 'text',
-              text: `✅ บันทึกเวลาเข้างานสำเร็จ! ⏰\n\nพนักงาน: ${matchedEmployee.firstName} ${matchedEmployee.lastName}\nวันที่: ${dateStr}\nเวลาเข้างาน: ${timeStr} น.\nสถานะ: ${status === 'late' ? '🔴 เข้างานสาย' : '🟢 ปกติ'}\n\nขอให้มีความสุขกับการทำงานในวันนี้ครับ! 💼`
-            }]);
-          }
-        } 
-        // COMMAND: "ลงชื่อออกงาน" / "ออกงาน"
-        else if (textLower.includes('ออกงาน') || textLower.includes('ลงชื่อออกงาน') || textLower.includes('checkout') || textLower.includes('check out')) {
-          const now = new Date();
-          const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
-          const timeStr = now.toTimeString().split(' ')[0].substring(0, 5); // HH:mm
-
-          const attCol = collection(db, 'attendance_records');
-          const attSnap = await getDocs(attCol);
-          let todayRecord: any = null;
-          let todayRecordDocId = '';
-
-          attSnap.forEach((docSnap) => {
-            const r = docSnap.data();
-            if (r.employeeId === matchedEmployee.employeeId && r.date === dateStr) {
-              todayRecord = r;
-              todayRecordDocId = docSnap.id;
             }
           });
 
           if (todayRecord) {
-            await updateDoc(doc(db, 'attendance_records', todayRecordDocId), {
-              checkOut: timeStr
-            });
-
             await sendLineReply(replyToken, channelToken, [{
               type: 'text',
-              text: `✅ บันทึกเวลาออกงานสำเร็จ! 🚪\n\nพนักงาน: ${matchedEmployee.firstName} ${matchedEmployee.lastName}\nวันที่: ${dateStr}\nเวลาออกงาน: ${timeStr} น.\n\nพักผ่อนให้เต็มที่และเดินทางกลับบ้านด้วยความปลอดภัยครับ! 🏡`
+              text: `⏰ คุณได้บันทึกเวลาเข้างานของวันนี้เรียบร้อยแล้วครับ!\nเวลาเข้างาน: ${todayRecord.time} น. / สถานะ: ${todayRecord.type === 'late' ? 'สาย' : 'ปกติ'}`
             }]);
           } else {
-            // Create a checkout record even if no checkin existed
+            // Determine lateness
+            let isLate = false;
+            const [startH, startM] = workHoursStart.split(':').map(Number);
+            const [checkH, checkM] = timeStr.split(':').map(Number);
+            const startTotal = (startH * 60) + startM + lateThresholdMins;
+            const checkTotal = (checkH * 60) + checkM;
+
+            if (checkTotal > startTotal) {
+              isLate = true;
+            }
+
             const newRecord = {
+              id: 'att-' + Date.now(),
               employeeId: matchedEmployee.employeeId,
               employeeName: `${matchedEmployee.firstName} ${matchedEmployee.lastName}`,
               date: dateStr,
-              checkIn: '',
-              checkOut: timeStr,
-              status: 'normal',
-              overtimeMins: 0,
-              location: 'LINE Bot API',
-              device: 'LINE Mobile App',
-              notes: 'ลงเวลาออกงานโดยไม่มีการลงเข้างานผ่าน LINE Bot'
+              time: timeStr,
+              type: isLate ? 'late' : 'clock_in',
+              notes: 'ลงเวลาผ่าน LINE Bot (ระบบอัตโนมัติ)',
+              recordedBy: 'LINE Bot'
             };
 
-            await addDoc(collection(db, 'attendance_records'), newRecord);
+            await addDoc(collection(db, 'attendanceRecords'), newRecord);
 
             await sendLineReply(replyToken, channelToken, [{
               type: 'text',
-              text: `✅ บันทึกเวลาออกงานสำเร็จ! (ไม่มีบันทึกการเข้างาน) 🚪\n\nวันที่: ${dateStr}\nเวลาออกงาน: ${timeStr} น.\n\nเดินทางกลับปลอดภัยครับ!`
+              text: `✅ บันทึกเวลาเข้างานสำเร็จ! ⏰\n\nพนักงาน: ${matchedEmployee.firstName} ${matchedEmployee.lastName}\nวันที่: ${dateStr}\nเวลาเข้างาน: ${timeStr.substring(0, 5)} น.\nสถานะ: ${isLate ? '🔴 เข้างานสาย' : '🟢 ปกติ'}\n\nขอให้มีความสุขกับการทำงานในวันนี้ครับ! 💼`
             }]);
           }
         } 
-        // COMMAND: "ขอลา" / "ลาป่วย" / "ลากิจ" / "ลาพักร้อน" / "ยื่นใบลา"
+        // COMMAND: "ออกงาน" / "ลงชื่อออกงาน" / "เช็คเอาท์" / "check out"
+        else if (textLower.includes('ออกงาน') || textLower.includes('ลงชื่อออกงาน') || textLower.includes('checkout') || textLower.includes('check out') || textLower === 'clock out') {
+          // Bangkok Time calculation (UTC+7)
+          const now = new Date();
+          const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+          const thailandTime = new Date(utc + (3600000 * 7));
+          
+          const dateStr = thailandTime.toISOString().split('T')[0]; // YYYY-MM-DD
+          const timeStr = thailandTime.toTimeString().split(' ')[0]; // HH:mm:ss
+
+          const attCol = collection(db, 'attendanceRecords');
+          const attSnap = await getDocs(attCol);
+          let todayRecord: any = null;
+
+          attSnap.forEach((docSnap) => {
+            const r = docSnap.data();
+            if (r.employeeId === matchedEmployee.employeeId && r.date === dateStr && r.type === 'clock_out') {
+              todayRecord = r;
+            }
+          });
+
+          if (todayRecord) {
+            await sendLineReply(replyToken, channelToken, [{
+              type: 'text',
+              text: `⏰ คุณได้บันทึกเวลาออกงานของวันนี้เรียบร้อยแล้วครับ!\nเวลาออกงาน: ${todayRecord.time.substring(0, 5)} น.`
+            }]);
+          } else {
+            const newRecord = {
+              id: 'att-' + Date.now(),
+              employeeId: matchedEmployee.employeeId,
+              employeeName: `${matchedEmployee.firstName} ${matchedEmployee.lastName}`,
+              date: dateStr,
+              time: timeStr,
+              type: 'clock_out',
+              notes: 'ลงเวลาออกงานผ่าน LINE Bot (ระบบอัตโนมัติ)',
+              recordedBy: 'LINE Bot'
+            };
+
+            await addDoc(collection(db, 'attendanceRecords'), newRecord);
+
+            // Auto overtime calculation
+            let otText = '';
+            if (hasOvertime) {
+              const [otH, otM] = otStartTime.split(':').map(Number);
+              const [checkH, checkM] = timeStr.split(':').map(Number);
+              const otTotal = (otH * 60) + otM;
+              const checkTotal = (checkH * 60) + checkM;
+              
+              if (checkTotal > otTotal) {
+                const diffMins = checkTotal - otTotal;
+                const computedOt = Math.round((diffMins / 60) * 2) / 2; // round to nearest 0.5 hours
+                
+                if (computedOt > 0) {
+                  const otRecord = {
+                    id: 'att-ot-' + (Date.now() + 1),
+                    employeeId: matchedEmployee.employeeId,
+                    employeeName: `${matchedEmployee.firstName} ${matchedEmployee.lastName}`,
+                    date: dateStr,
+                    time: timeStr,
+                    type: 'overtime',
+                    notes: 'บันทึก OT อัตโนมัติจากการออกงานผ่าน LINE Bot',
+                    otHours: computedOt,
+                    recordedBy: 'LINE Bot'
+                  };
+                  await addDoc(collection(db, 'attendanceRecords'), otRecord);
+                  otText = `\n🔥 บันทึกค่าล่วงเวลา (OT) อัตโนมัติ: ${computedOt} ชั่วโมง`;
+                }
+              }
+            }
+
+            await sendLineReply(replyToken, channelToken, [{
+              type: 'text',
+              text: `✅ บันทึกเวลาออกงานสำเร็จ! 🚪\n\nพนักงาน: ${matchedEmployee.firstName} ${matchedEmployee.lastName}\nวันที่: ${dateStr}\nเวลาออกงาน: ${timeStr.substring(0, 5)} น.${otText}\n\nเดินทางกลับบ้านและพักผ่อนให้เต็มที่ครับ! 🏡`
+            }]);
+          }
+        } 
+        // COMMAND: "ขอลา [ประเภทลา] [จำนวนวัน] วัน ตั้งแต่วันที่ [วว/ดด/ปปปป] เหตุผล [เหตุผล]"
         else if (textLower.startsWith('ขอลา') || textLower.startsWith('/ขอลา')) {
           const leaveMatch = text.match(/ขอลา\s+(ลาป่วย|ลากิจ|ลาพักร้อน|ลาพักผ่อน)\s+(\d+)\s+วัน\s+ตั้งแต่วันที่\s+(\d{1,2}\/\d{1,2}\/\d{4})\s+เหตุผล\s+(.+)/i);
           
@@ -365,9 +388,14 @@ app.post('/api/line/webhook', async (req, res) => {
               const day = dateParts[0].padStart(2, '0');
               const month = dateParts[1].padStart(2, '0');
               const year = dateParts[2];
-              startDate = `${year}-${month}-${day}`;
+              let yearNum = parseInt(year, 10);
+              if (yearNum > 2400) yearNum -= 543; // Handle Thai BE years gracefully
+              startDate = `${yearNum}-${month}-${day}`;
             } else {
-              startDate = new Date().toISOString().split('T')[0];
+              const now = new Date();
+              const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+              const thailandTime = new Date(utc + (3600000 * 7));
+              startDate = thailandTime.toISOString().split('T')[0];
             }
 
             // Calculate endDate (add days-1)
@@ -375,7 +403,13 @@ app.post('/api/line/webhook', async (req, res) => {
             const eDate = new Date(sDate.getTime() + ((daysCount - 1) * 24 * 60 * 60 * 1000));
             const endDate = eDate.toISOString().split('T')[0];
 
+            const now = new Date();
+            const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+            const thailandTime = new Date(utc + (3600000 * 7));
+            const todayStr = thailandTime.toISOString().split('T')[0];
+
             const newLeave = {
+              id: `leave-${Date.now()}`,
               employeeId: matchedEmployee.employeeId,
               employeeName: `${matchedEmployee.firstName} ${matchedEmployee.lastName}`,
               leaveType,
@@ -384,19 +418,19 @@ app.post('/api/line/webhook', async (req, res) => {
               days: daysCount,
               reason: reasonInput,
               status: 'pending',
-              createdAt: new Date().toISOString().split('T')[0]
+              createdAt: todayStr
             };
 
-            await addDoc(collection(db, 'leave_requests'), newLeave);
+            await addDoc(collection(db, 'leaveRequests'), newLeave);
 
             await sendLineReply(replyToken, channelToken, [{
               type: 'text',
-              text: `✅ ส่งใบอนุมัติลาพักผ่อนสำเร็จแล้วครับ! 📨\n\nรายละเอียดใบลา:\n• ผู้ลา: ${matchedEmployee.firstName} ${matchedEmployee.lastName}\n• ประเภท: ${thaiType}\n• จำนวน: ${daysCount} วัน\n• ตั้งแต่วันที่: ${startDate} ถึง ${endDate}\n• เหตุผล: ${reasonInput}\n\n⏳ ขณะนี้ระบบได้ส่งเอกสารเสนอเพื่อรออนุมัติไปยังฝ่ายบุคคล (HR) และหัวหน้างานของคุณเรียบร้อยแล้ว`
+              text: `✅ ส่งใบอนุมัติลาพักผ่อนสำเร็จแล้วครับ! 📨\n\nรายละเอียดใบลา:\n• ผู้ลา: ${matchedEmployee.firstName} ${matchedEmployee.lastName}\n• ประเภท: ${thaiType}\n• จำนวน: ${daysCount} วัน\n• ตั้งแต่วันที่: ${startDate} ถึง ${endDate}\n• เหตุผล: ${reasonInput}\n\n⏳ ขณะนี้ระบบได้ส่งเอกสารเพื่อรออนุมัติไปยังฝ่ายบุคคล (HR) และผู้จัดการของคุณเรียบร้อยแล้ว`
             }]);
           } else {
             await sendLineReply(replyToken, channelToken, [{
               type: 'text',
-              text: `📝 วิธีการส่งใบลาหยุดผ่าน LINE Bot:\n\nกรุณาพิมพ์ข้อความส่งในรูปแบบด้านล่างนี้:\n\nขอลา [ประเภทลา] [จำนวนวัน] วัน ตั้งแต่วันที่ [วว/ดด/ปปปป] เหตุผล [ระบุเหตุผล]\n\n👉 ตัวอย่างคำลา:\nขอลา ลาป่วย 1 วัน ตั้งแต่วันที่ 08/07/2026 เหตุผล เป็นไข้ตัวร้อน\nขอลา ลากิจ 2 วัน ตั้งแต่วันที่ 15/07/2026 เหตุผล ไปทำธุระต่างจังหวัด\nขอลา ลาพักร้อน 3 วัน ตั้งแต่วันที่ 20/07/2026 เหตุผล ไปพักผ่อนครอบครัว`
+              text: `📝 วิธีการส่งใบลาหยุดผ่าน LINE Bot:\n\nกรุณาพิมพ์ข้อความส่งในรูปแบบด้านล่างนี้:\n\nขอลา [ประเภทลา] [จำนวนวัน] วัน ตั้งแต่วันที่ [วว/ดด/ปปปป] เหตุผล [ระบุเหตุผล]\n\n👉 ตัวอย่างคำลา:\n• ขอลา ลาป่วย 1 วัน ตั้งแต่วันที่ 08/07/2026 เหตุผล เป็นไข้ตัวร้อน\n• ขอลา ลากิจ 2 วัน ตั้งแต่วันที่ 15/07/2026 เหตุผล ไปทำธุระต่างจังหวัด\n• ขอลา ลาพักร้อน 3 วัน ตั้งแต่วันที่ 20/07/2026 เหตุผล ไปพักผ่อนครอบครัว`
             }]);
           }
         }
@@ -404,7 +438,7 @@ app.post('/api/line/webhook', async (req, res) => {
         else {
           await sendLineReply(replyToken, channelToken, [{
             type: 'text',
-            text: `ยินดีต้อนรับคุณ ${matchedEmployee.firstName} 🤖\n\nท่านสามารถสั่งการระบบด้วยข้อความคำสั่งต่อไปนี้ได้ทันทีครับ:\n\n⏰ ระบบลงชื่อเข้า-ออกงาน\n• พิมพ์ "เข้างาน" หรือ "ลงชื่อเข้างาน"\n• พิมพ์ "ออกงาน" หรือ "ลงชื่อออกงาน"\n\n📊 โควตาวันลาหยุดพนักงาน\n• พิมพ์ "เช็ควันลา" เพื่อตรวจสอบโควตา\n\n📝 การยื่นเอกสารขอลาพักผ่อน\n• พิมพ์ "ขอลา" เพื่อส่งใบลาอัตโนมัติ`
+            text: `ยินดีต้อนรับคุณ ${matchedEmployee.firstName} 🤖\n\nท่านสามารถสั่งการระบบด้วยข้อความคำสั่งต่อไปนี้ได้ทันทีครับ:\n\n⏰ ระบบลงชื่อเข้า-ออกงาน\n• พิมพ์ "เข้างาน" หรือ "ลงชื่อเข้างาน"\n• พิมพ์ "ออกงาน" หรือ "ลงชื่อออกงาน"\n\n📊 โควตาวันลาหยุดพนักงาน\n• พิมพ์ "เช็ควันลา" เพื่อตรวจสอบสิทธิ์คงเหลือ\n\n📝 การยื่นเอกสารขอลาพักผ่อน\n• พิมพ์ "ขอลา" เพื่อดูวิธีการยื่นใบลา`
           }]);
         }
       }
@@ -412,6 +446,13 @@ app.post('/api/line/webhook', async (req, res) => {
   } catch (err) {
     console.error('Error handling webhook events:', err);
   }
+});
+
+// ---------------------------------------------------------
+// API: Status
+// ---------------------------------------------------------
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'ok', database: db ? 'online' : 'offline' });
 });
 
 // ---------------------------------------------------------
