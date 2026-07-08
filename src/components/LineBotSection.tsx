@@ -213,14 +213,15 @@ export default function LineBotSection({
                   <input
                     type="text"
                     readOnly
-                    value={`${window.location.origin}/api/line/webhook`}
+                    value={window.location.origin.includes('ais-dev-') ? window.location.origin.replace('ais-dev-', 'ais-pre-') + '/api/line/webhook' : `${window.location.origin}/api/line/webhook`}
                     className="flex-1 bg-transparent border-none text-[10px] font-mono text-slate-600 focus:outline-none"
                   />
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText(`${window.location.origin}/api/line/webhook`);
-                      setUserNotification("คัดลอก Webhook URL ไปยังคลิปบอร์ดแล้ว");
+                      const finalUrl = window.location.origin.includes('ais-dev-') ? window.location.origin.replace('ais-dev-', 'ais-pre-') + '/api/line/webhook' : `${window.location.origin}/api/line/webhook`;
+                      navigator.clipboard.writeText(finalUrl);
+                      setUserNotification("คัดลอก Webhook URL แบบสาธารณะสำเร็จแล้ว");
                       setTimeout(() => setUserNotification(null), 3000);
                     }}
                     className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-500 transition-colors cursor-pointer"
@@ -229,11 +230,17 @@ export default function LineBotSection({
                     <Copy className="w-4 h-4" />
                   </button>
                 </div>
-                <div className="p-2 bg-red-50 rounded-lg border border-red-100 text-[10px] text-red-600 flex gap-1.5">
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
-                  <span>
-                    <strong>ข้อควรระวัง:</strong> เมื่อนำลิงก์ไปใส่ใน LINE Console ให้เปลี่ยนจาก localhost:3000 หรือไอพีท้องถิ่น เป็น Domain จริงของบริการ Cloud Run ด้านบนเท่านั้น บอทจึงจะได้รับสายเรียกเข้าจากภายนอกได้
-                  </span>
+                <div className="p-2 bg-indigo-50 rounded-lg border border-indigo-100 text-[10px] text-indigo-700 space-y-1">
+                  <div className="font-bold flex items-center gap-1">
+                    <Zap className="w-3.5 h-3.5 fill-indigo-500 text-indigo-500" />
+                    ทำไมต้องใช้ลิงก์ ais-pre- ?
+                  </div>
+                  <p className="leading-relaxed">
+                    ลิงก์พรีวิวในหน้าแก้ไข (ais-dev-) จะถูกป้องกันด้วยระบบล็อกอินของ Google Cloud ทำให้อินเทอร์เน็ตภายนอกและบอทของ LINE ไม่สามารถส่งข้อมูลเข้ามาได้ (จะส่งผลให้เจอ 404/403/401 ใน LINE Console)
+                  </p>
+                  <p className="leading-relaxed font-bold text-emerald-600">
+                    💡 ระบบได้แปลงลิงก์ด้านบนเป็น "Shared App URL (ais-pre-)" ซึ่งเป็นสาธารณะเรียบร้อยแล้ว ท่านสามารถคัดลอกลิงก์ด้านบนไปใส่ใน LINE Developers Console เพื่อเชื่อมต่อได้ทันที!
+                  </p>
                 </div>
               </div>
 
