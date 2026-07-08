@@ -1,7 +1,6 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import { createServer as createViteServer } from 'vite';
 import { initializeApp } from 'firebase/app';
 import { 
   initializeFirestore, 
@@ -10,7 +9,8 @@ import {
   getDoc, 
   doc, 
   updateDoc, 
-  addDoc 
+  addDoc,
+  setDoc
 } from 'firebase/firestore';
 
 const PORT = 3000;
@@ -22,10 +22,23 @@ app.use(express.json());
 // Initialize Firebase Client SDK for server-side use
 let db: any = null;
 try {
-  const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+  let configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+  if (!fs.existsSync(configPath)) {
+    configPath = path.join(__dirname, '../firebase-applet-config.json');
+  }
+  if (!fs.existsSync(configPath)) {
+    configPath = path.join(__dirname, 'firebase-applet-config.json');
+  }
+  if (!fs.existsSync(configPath)) {
+    configPath = path.join(__dirname, '../../firebase-applet-config.json');
+  }
+
+  let firebaseConfig: any = null;
+  let databaseId = '(default)';
+
   if (fs.existsSync(configPath)) {
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    const firebaseConfig = {
+    firebaseConfig = {
       apiKey: config.apiKey,
       authDomain: config.authDomain,
       projectId: config.projectId,
@@ -33,11 +46,28 @@ try {
       messagingSenderId: config.messagingSenderId,
       appId: config.appId
     };
+    databaseId = config.firestoreDatabaseId || '(default)';
+    console.log('Firebase config loaded from firebase-applet-config.json');
+  } else if (process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY) {
+    // Fallback to environment variables (useful for Vercel/production deployment)
+    firebaseConfig = {
+      apiKey: process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY,
+      authDomain: process.env.FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN,
+      projectId: process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID,
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET,
+      messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+      appId: process.env.FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID
+    };
+    databaseId = process.env.FIREBASE_DATABASE_ID || process.env.VITE_FIREBASE_DATABASE_ID || '(default)';
+    console.log('Firebase config loaded from Environment Variables');
+  }
+
+  if (firebaseConfig) {
     const firebaseApp = initializeApp(firebaseConfig);
-    db = initializeFirestore(firebaseApp, {}, config.firestoreDatabaseId || '(default)');
-    console.log('Backend server connected to Firestore:', config.firestoreDatabaseId || '(default)');
+    db = initializeFirestore(firebaseApp, {}, databaseId);
+    console.log('Backend server connected to Firestore:', databaseId);
   } else {
-    console.warn('firebase-applet-config.json not found. Database features in backend may be offline.');
+    console.warn('Neither firebase-applet-config.json nor Firebase environment variables were found. Database features in backend may be offline.');
   }
 } catch (error) {
   console.error('Error initializing Firebase in server:', error);
@@ -77,6 +107,14 @@ async function sendLineReply(replyToken: string, channelToken: string, messages:
 // ---------------------------------------------------------
 // API: LINE Developer Webhook Endpoint
 // ---------------------------------------------------------
+app.get('/api/line/webhook', (req, res) => {
+  res.status(200).json({ 
+    status: 'online', 
+    message: 'LINE Bot Webhook is active and ready. Please use POST method for Webhook messages.',
+    database: db ? 'connected' : 'offline'
+  });
+});
+
 app.post('/api/line/webhook', async (req, res) => {
   console.log('Received webhook event from LINE.');
   
@@ -456,11 +494,162 @@ app.get('/api/health', (req, res) => {
 });
 
 // ---------------------------------------------------------
+// Helper: Seed Firestore from Backend
+// ---------------------------------------------------------
+async function seedBackendFirestore() {
+  if (!db) {
+    console.log('Skipping backend seeding because Firestore is not initialized.');
+    return;
+  }
+  try {
+    // 1. Check & seed settings/system
+    const settingsDoc = doc(db, 'settings', 'system');
+    const settingsSnap = await getDoc(settingsDoc);
+    if (!settingsSnap.exists()) {
+      await setDoc(settingsDoc, {
+        companyName: 'บริษัท อินโนเวทีฟ ออฟฟิศ โซลูชั่นส์ จำกัด',
+        companyAddress: 'อาคารเอไอทาวเวอร์ ชั้น 18, ถ.สุขุมวิท 21 แขวงคลองเตยเหนือ เขตวัฒนา กรุงเทพฯ 10110',
+        workDays: ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์'],
+        workHoursStart: '08:30',
+        workHoursEnd: '17:30',
+        maxLeaveDays: { sick: 30, annual: 12, personal: 6 },
+        hasOvertime: true,
+        otStartTime: '18:00',
+        otRate: 1.5,
+        lateThresholdMins: 15,
+        departments: [
+          'เทคโนโลยีสารสนเทศ (IT)',
+          'ทรัพยากรบุคคล (HR)',
+          'ฝ่ายขายและการตลาด',
+          'บัญชีและการเงิน',
+          'ฝ่ายบริหารองค์กร'
+        ],
+        lineChannelToken: 'eyJhY2Nlc3NUb2tlbiI6ImxpbmUtYm90LWNoYW5uZWwtYWNjZXNzLXRva2VuLXNpbXVsYXRlZC0yMDI2In0=',
+        lineChannelSecret: '8f92a4e5100fbd451833aa3b34ff60b3',
+        lineWebhookUrl: 'https://ais-dev-bmco3xexmw2r26vzq6bz4v-713032521366.asia-southeast1.run.app/api/line/webhook'
+      });
+      console.log('Seeded system settings from backend.');
+    }
+
+    // 2. Check & seed accounts
+    const accountsCol = collection(db, 'accounts');
+    const accountsSnap = await getDocs(accountsCol);
+    if (accountsSnap.empty) {
+      const initialAccounts = [
+        {
+          email: 'admin@office.com',
+          username: 'modify',
+          password: '1234',
+          role: 'admin',
+          name: 'ผู้ดูแลระบบ (Admin)'
+        },
+        {
+          email: 'somchai.j@office.co.th',
+          username: 'somchai.j',
+          password: 'password123',
+          role: 'employee',
+          employeeId: 'EMP-001',
+          name: 'สมชาย ใจดี'
+        }
+      ];
+      for (const acc of initialAccounts) {
+        const docId = acc.email.toLowerCase().trim().replace(/[\.\#\$\[\]]/g, '_');
+        await setDoc(doc(db, 'accounts', docId), acc);
+      }
+      console.log('Seeded user accounts from backend.');
+    }
+
+    // 3. Check & seed employees
+    const employeesCol = collection(db, 'employees');
+    const employeesSnap = await getDocs(employeesCol);
+    if (employeesSnap.empty) {
+      const initialEmployees = [
+        {
+          id: 'emp-001',
+          employeeId: 'EMP-001',
+          firstName: 'สมชาย',
+          lastName: 'ใจดี',
+          position: 'ผู้จัดการฝ่ายไอที',
+          department: 'เทคโนโลยีสารสนเทศ (IT)',
+          email: 'somchai.j@office.co.th',
+          phone: '081-234-5678',
+          startDate: '2025-01-15',
+          status: 'active',
+          avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+          personalId: '1100100234567',
+          birthDate: '1990-05-20',
+          address: '123/45 ซอยสุขุมวิท 23 แขวงคลองเตยเหนือ เขตวัฒนา กรุงเทพฯ 10110',
+          emergencyContact: {
+            name: 'นางพรรณลดา ใจดี',
+            relationship: 'ภรรยา',
+            phone: '089-876-5432'
+          },
+          verificationStatus: 'pending'
+        },
+        {
+          id: 'emp-002',
+          employeeId: 'EMP-002',
+          firstName: 'สมใจ',
+          lastName: 'รักดี',
+          position: 'เจ้าหน้าที่สรรหาบุคลากร',
+          department: 'ทรัพยากรบุคคล (HR)',
+          email: 'somjai.r@office.co.th',
+          phone: '082-345-6789',
+          startDate: '2025-03-01',
+          status: 'active',
+          avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
+          personalId: '1100200345678',
+          birthDate: '1993-08-14',
+          address: '456/78 ถ.รัชดาภิเษก แขวงห้วยขวาง เขตห้วยขวาง กรุงเทพฯ 10310',
+          emergencyContact: {
+            name: 'นายวิทยา รักดี',
+            relationship: 'บิดา',
+            phone: '088-765-4321'
+          },
+          verificationStatus: 'pending'
+        },
+        {
+          id: 'emp-003',
+          employeeId: 'EMP-003',
+          firstName: 'อนันต์',
+          lastName: 'รุ่งเรือง',
+          position: 'เจ้าหน้าที่ฝ่ายขายอาวุโส',
+          department: 'ฝ่ายขายและการตลาด',
+          email: 'anant.r@office.co.th',
+          phone: '083-456-7890',
+          startDate: '2024-06-10',
+          status: 'active',
+          avatar: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=150',
+          personalId: '1100300456789',
+          birthDate: '1988-11-05',
+          address: '789/12 ซอยพหลโยธิน 32 แขวงเสนานิคม เขตจตุจักร กรุงเทพฯ 10900',
+          emergencyContact: {
+            name: 'นางศิริพรรณ รุ่งเรือง',
+            relationship: 'มารดา',
+            phone: '087-654-3210'
+          },
+          verificationStatus: 'pending'
+        }
+      ];
+      for (const emp of initialEmployees) {
+        await setDoc(doc(db, 'employees', emp.id), emp);
+      }
+      console.log('Seeded initial employees from backend.');
+    }
+  } catch (error) {
+    console.error('Error during backend seeding:', error);
+  }
+}
+
+// ---------------------------------------------------------
 // Vite Server / Static Files Hosting
 // ---------------------------------------------------------
 async function startServer() {
+  await seedBackendFirestore();
+
   if (process.env.NODE_ENV !== 'production') {
     console.log('Running server in DEVELOPMENT mode with Vite Middleware.');
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',

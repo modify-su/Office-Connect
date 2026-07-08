@@ -20,7 +20,9 @@ import {
 } from '../types';
 import { 
   initialAccounts, 
-  defaultSettings 
+  defaultSettings,
+  initialEmployees,
+  initialSupplyItems
 } from '../data';
 
 // Helper to sanitize document paths if necessary (e.g. for emails)
@@ -93,6 +95,54 @@ export async function seedFirestoreIfEmpty() {
         console.log('Seeded initial accounts to Firestore');
       } catch (error) {
         handleFirestoreError(error, OperationType.WRITE, 'accounts');
+      }
+    }
+
+    // 3. Seed Employees if empty
+    const employeesColRef = collection(db, 'employees');
+    let employeesSnap;
+    try {
+      employeesSnap = await getDocs(employeesColRef);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'employees');
+      return;
+    }
+
+    if (employeesSnap.empty) {
+      try {
+        const batch = writeBatch(db);
+        initialEmployees.forEach(emp => {
+          const docRef = doc(db, 'employees', emp.id);
+          batch.set(docRef, cleanUndefined(emp));
+        });
+        await batch.commit();
+        console.log('Seeded initial employees to Firestore');
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'employees');
+      }
+    }
+
+    // 4. Seed Supply Items if empty
+    const supplyItemsColRef = collection(db, 'supplyItems');
+    let supplyItemsSnap;
+    try {
+      supplyItemsSnap = await getDocs(supplyItemsColRef);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'supplyItems');
+      return;
+    }
+
+    if (supplyItemsSnap.empty) {
+      try {
+        const batch = writeBatch(db);
+        initialSupplyItems.forEach(item => {
+          const docRef = doc(db, 'supplyItems', item.id);
+          batch.set(docRef, cleanUndefined(item));
+        });
+        await batch.commit();
+        console.log('Seeded initial supply items to Firestore');
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'supplyItems');
       }
     }
   } catch (error) {
@@ -314,5 +364,27 @@ export async function resetAllCloudStateCloud() {
     await accountsBatch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, 'accounts');
+  }
+
+  try {
+    const employeesBatch = writeBatch(db);
+    initialEmployees.forEach(emp => {
+      const docRef = doc(db, 'employees', emp.id);
+      employeesBatch.set(docRef, cleanUndefined(emp));
+    });
+    await employeesBatch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, 'employees');
+  }
+
+  try {
+    const supplyBatch = writeBatch(db);
+    initialSupplyItems.forEach(item => {
+      const docRef = doc(db, 'supplyItems', item.id);
+      supplyBatch.set(docRef, cleanUndefined(item));
+    });
+    await supplyBatch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, 'supplyItems');
   }
 }
