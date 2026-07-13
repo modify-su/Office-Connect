@@ -2,72 +2,6 @@ import { Employee, LeaveRequest, SupplyItem, SupplyRequest, SystemSettings, User
 
 export const initialEmployees: Employee[] = [
   {
-    id: 'emp-001',
-    employeeId: 'EMP-001',
-    firstName: 'สมชาย',
-    lastName: 'ใจดี',
-    position: 'ผู้จัดการฝ่ายไอที',
-    department: 'เทคโนโลยีสารสนเทศ (IT)',
-    email: 'somchai.j@office.co.th',
-    phone: '081-234-5678',
-    startDate: '2025-01-15',
-    status: 'active',
-    avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-    personalId: '1100100234567',
-    birthDate: '1990-05-20',
-    address: '123/45 ซอยสุขุมวิท 23 แขวงคลองเตยเหนือ เขตวัฒนา กรุงเทพฯ 10110',
-    emergencyContact: {
-      name: 'นางพรรณลดา ใจดี',
-      relationship: 'ภรรยา',
-      phone: '089-876-5432'
-    },
-    verificationStatus: 'pending'
-  },
-  {
-    id: 'emp-002',
-    employeeId: 'EMP-002',
-    firstName: 'สมใจ',
-    lastName: 'รักดี',
-    position: 'เจ้าหน้าที่สรรหาบุคลากร',
-    department: 'ทรัพยากรบุคคล (HR)',
-    email: 'somjai.r@office.co.th',
-    phone: '082-345-6789',
-    startDate: '2025-03-01',
-    status: 'active',
-    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-    personalId: '1100200345678',
-    birthDate: '1993-08-14',
-    address: '456/78 ถ.รัชดาภิเษก แขวงห้วยขวาง เขตห้วยขวาง กรุงเทพฯ 10310',
-    emergencyContact: {
-      name: 'นายวิทยา รักดี',
-      relationship: 'บิดา',
-      phone: '088-765-4321'
-    },
-    verificationStatus: 'pending'
-  },
-  {
-    id: 'emp-003',
-    employeeId: 'EMP-003',
-    firstName: 'อนันต์',
-    lastName: 'รุ่งเรือง',
-    position: 'เจ้าหน้าที่ฝ่ายขายอาวุโส',
-    department: 'ฝ่ายขายและการตลาด',
-    email: 'anant.r@office.co.th',
-    phone: '083-456-7890',
-    startDate: '2024-06-10',
-    status: 'active',
-    avatar: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=150',
-    personalId: '1100300456789',
-    birthDate: '1988-11-05',
-    address: '789/12 ซอยพหลโยธิน 32 แขวงเสนานิคม เขตจตุจักร กรุงเทพฯ 10900',
-    emergencyContact: {
-      name: 'นางศิริพรรณ รุ่งเรือง',
-      relationship: 'มารดา',
-      phone: '087-654-3210'
-    },
-    verificationStatus: 'pending'
-  },
-  {
     id: 'emp-004',
     employeeId: 'AWA-001',
     firstName: 'ผู้ใช้งาน',
@@ -202,14 +136,6 @@ export const initialAccounts: UserAccount[] = [
     password: '1234',
     role: 'admin',
     name: 'ผู้ดูแลระบบ (Admin)'
-  },
-  {
-    email: 'somchai.j@office.co.th',
-    username: 'somchai.j',
-    password: 'password123',
-    role: 'employee',
-    employeeId: 'EMP-001',
-    name: 'สมชาย ใจดี'
   }
 ];
 
@@ -229,7 +155,7 @@ export const getStoredData = () => {
 
   try {
     // One-time automatic reset of existing localStorage mock data to keep it fully empty
-    const clearedFlag = localStorage.getItem('office_v4_fully_cleared');
+    const clearedFlag = localStorage.getItem('office_v5_fully_cleared_v11');
     if (!clearedFlag) {
       localStorage.removeItem('office_employees');
       localStorage.removeItem('office_leaves');
@@ -240,7 +166,7 @@ export const getStoredData = () => {
       localStorage.removeItem('office_written_requests');
       localStorage.removeItem('office_attendance');
       localStorage.removeItem('office_session');
-      localStorage.setItem('office_v4_fully_cleared', 'true');
+      localStorage.setItem('office_v5_fully_cleared_v11', 'true');
     }
 
     const employeesStr = localStorage.getItem('office_employees');

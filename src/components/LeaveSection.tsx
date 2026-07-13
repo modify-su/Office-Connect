@@ -16,7 +16,8 @@ import {
   X,
   PlusCircle,
   Hash,
-  ArrowLeftRight
+  ArrowLeftRight,
+  Trash2
 } from 'lucide-react';
 import { LeaveRequest, LeaveType, LeaveStatus, Employee, UserAccount } from '../types';
 
@@ -64,6 +65,7 @@ interface LeaveSectionProps {
   onAddLeaveRequest: (req: Omit<LeaveRequest, 'id' | 'createdAt'>) => void;
   onApproveLeave: (id: string) => void;
   onRejectLeave: (id: string) => void;
+  onClearAllLeaveRequests?: () => void;
   defaultAddOpen?: boolean;
   onClearDefaultAddOpen?: () => void;
   currentUser?: UserAccount | null;
@@ -75,6 +77,7 @@ export default function LeaveSection({
   onAddLeaveRequest,
   onApproveLeave,
   onRejectLeave,
+  onClearAllLeaveRequests,
   defaultAddOpen,
   onClearDefaultAddOpen,
   currentUser
@@ -84,6 +87,7 @@ export default function LeaveSection({
   const canHR = isAdmin || currentUser?.permissions?.canApproveLeaveHR || currentUser?.permissions?.canApproveLeave;
   const canManager = isAdmin || currentUser?.permissions?.canApproveLeaveManager;
   const isEmployeeOnly = isEmployee && !canHR && !canManager;
+  const canClearHistory = isAdmin || currentUser?.permissions?.canClearLeaveHistory === true;
 
   // State variables
   const [activeSubTab, setActiveSubTab] = useState<'my_leaves' | 'public_holidays'>('my_leaves');
@@ -91,6 +95,7 @@ export default function LeaveSection({
   const [selectedType, setSelectedType] = useState<string>('All');
   const [selectedStatus, setSelectedStatus] = useState<string>('All');
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [showClearConfirmModal, setShowClearConfirmModal] = useState(false);
   const [actingLeaveReq, setActingLeaveReq] = useState<{ id: string; employeeName: string; action: 'approve' | 'reject' } | null>(null);
 
   // Leave Form states
@@ -210,6 +215,297 @@ export default function LeaveSection({
     }
   };
 
+  const handlePrintLeaveDoc = (req: LeaveRequest) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('กรุณาอนุญาตป๊อปอัพเพื่อแสดงหน้าสั่งพิมพ์');
+      return;
+    }
+
+    const matchedEmployee = employees.find(emp => emp.employeeId === req.employeeId);
+    const department = matchedEmployee ? matchedEmployee.department : 'ฝ่ายปฏิบัติการ';
+    const position = matchedEmployee ? matchedEmployee.position : 'พนักงาน';
+
+    const leaveTypeLabel = formatLeaveType(req.leaveType);
+    const startDateFormatted = formatThaiDate(req.startDate);
+    const endDateFormatted = formatThaiDate(req.endDate);
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>ใบคำขออนุมัติการลางาน - ${req.employeeName}</title>
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700;800&display=swap');
+            body {
+              font-family: 'Sarabun', sans-serif;
+              padding: 40px;
+              color: #1a1a1a;
+              line-height: 1.6;
+              font-size: 15px;
+              background-color: #ffffff;
+            }
+            .container {
+              max-width: 800px;
+              margin: 0 auto;
+              border: 1px solid #ddd;
+              padding: 50px;
+              box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+              position: relative;
+            }
+            .header {
+              text-align: center;
+              border-bottom: 2px solid #334155;
+              padding-bottom: 20px;
+              margin-bottom: 25px;
+            }
+            .title {
+              font-size: 22px;
+              font-weight: 700;
+              color: #1e293b;
+              margin: 0;
+              letter-spacing: 0.05em;
+            }
+            .subtitle {
+              font-size: 13px;
+              color: #64748b;
+              margin-top: 5px;
+              font-weight: 500;
+            }
+            .doc-meta {
+              display: flex;
+              justify-content: space-between;
+              font-size: 12px;
+              color: #475569;
+              margin-bottom: 20px;
+              background-color: #f8fafc;
+              padding: 10px 15px;
+              border-radius: 8px;
+              border: 1px solid #f1f5f9;
+            }
+            .section-title {
+              font-size: 14px;
+              font-weight: 700;
+              color: #0f172a;
+              border-left: 4px solid #2563eb;
+              padding-left: 10px;
+              margin-top: 25px;
+              margin-bottom: 15px;
+            }
+            .grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 15px;
+              margin-bottom: 20px;
+            }
+            .field {
+              display: flex;
+              align-items: baseline;
+            }
+            .label {
+              font-weight: 600;
+              color: #334155;
+              min-width: 130px;
+              flex-shrink: 0;
+            }
+            .value {
+              flex-grow: 1;
+              border-bottom: 1px dotted #cbd5e1;
+              padding-left: 5px;
+              color: #0f172a;
+            }
+            .reason-box {
+              background-color: #f8fafc;
+              border: 1px solid #e2e8f0;
+              border-radius: 8px;
+              padding: 15px;
+              font-style: italic;
+              color: #334155;
+              margin-bottom: 25px;
+              white-space: pre-wrap;
+              font-size: 14px;
+            }
+            .workflow {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 20px;
+              margin-top: 30px;
+            }
+            .signature-card {
+              border: 1px solid #e2e8f0;
+              border-radius: 12px;
+              padding: 20px;
+              text-align: center;
+              background-color: #fff;
+              position: relative;
+            }
+            .signature-title {
+              font-size: 13px;
+              font-weight: 700;
+              color: #475569;
+              margin-bottom: 15px;
+            }
+            .signature-line {
+              margin-top: 40px;
+              border-bottom: 1px solid #94a3b8;
+              width: 80%;
+              margin-left: auto;
+              margin-right: auto;
+            }
+            .signer-name {
+              font-size: 13px;
+              font-weight: 600;
+              color: #1e293b;
+              margin-top: 8px;
+            }
+            .sign-date {
+              font-size: 11px;
+              color: #64748b;
+              margin-top: 2px;
+            }
+            .stamp-approved {
+              position: absolute;
+              top: 15px;
+              right: 20px;
+              border: 3px double #10b981;
+              color: #10b981;
+              font-size: 11px;
+              font-weight: 800;
+              padding: 4px 10px;
+              transform: rotate(-10deg);
+              border-radius: 4px;
+              background-color: rgba(16, 185, 129, 0.05);
+            }
+            .stamp-checked {
+              position: absolute;
+              top: 15px;
+              right: 20px;
+              border: 3px double #3b82f6;
+              color: #3b82f6;
+              font-size: 11px;
+              font-weight: 800;
+              padding: 4px 10px;
+              transform: rotate(-10deg);
+              border-radius: 4px;
+              background-color: rgba(59, 130, 246, 0.05);
+            }
+            .footer-info {
+              margin-top: 40px;
+              text-align: center;
+              font-size: 11px;
+              color: #94a3b8;
+              border-top: 1px solid #e2e8f0;
+              padding-top: 15px;
+            }
+            @media print {
+              body { padding: 0; background-color: #fff; }
+              .container { border: none; box-shadow: none; padding: 0; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1 class="title">ใบขออนุมัติการลางานอย่างเป็นทางการ</h1>
+              <p class="subtitle">ระบบการจัดการและสารสนเทศงานบุคคล - OfficeConnect Platform</p>
+            </div>
+
+            <div class="doc-meta">
+              <span><strong>เลขที่เอกสาร:</strong> LEAVE-${req.id.replace('leave-', '')}</span>
+              <span><strong>วันที่ยื่นคำขอ:</strong> ${formatThaiDate(req.createdAt)}</span>
+              <span><strong>สถานะเอกสาร:</strong> <span style="color: #10b981; font-weight: bold;">อนุมัติเรียบร้อยแล้ว</span></span>
+            </div>
+
+            <div class="section-title">ข้อมูลส่วนตัวพนักงานผู้ยื่นคำขอลา</div>
+            <div class="grid">
+              <div class="field">
+                <span class="label">ชื่อ - นามสกุล:</span>
+                <span class="value">${req.employeeName}</span>
+              </div>
+              <div class="field">
+                <span class="label">รหัสพนักงาน:</span>
+                <span class="value" style="font-family: monospace; font-weight: bold;">${req.employeeId}</span>
+              </div>
+              <div class="field">
+                <span class="label">ตำแหน่งหน้าที่:</span>
+                <span class="value">${position}</span>
+              </div>
+              <div class="field">
+                <span class="label">แผนก / ฝ่าย:</span>
+                <span class="value">${department}</span>
+              </div>
+            </div>
+
+            <div class="section-title">รายละเอียดข้อมูลการลางาน</div>
+            <div class="grid">
+              <div class="field" style="grid-column: span 2;">
+                <span class="label">ประเภทการลา:</span>
+                <span class="value" style="font-weight: bold; color: #1e40af;">${leaveTypeLabel}</span>
+              </div>
+              
+              ${req.leaveType === 'swap' ? `
+                <div class="field" style="grid-column: span 2;">
+                  <span class="label">สลับจากวันหยุดเดิม:</span>
+                  <span class="value" style="font-weight: bold;">${formatThaiDate(req.swapFromDate || '')}</span>
+                </div>
+                <div class="field" style="grid-column: span 2;">
+                  <span class="label">เพื่อสลับไปหยุดชดเชย:</span>
+                  <span class="value" style="font-weight: bold; color: #16a34a;">${formatThaiDate(req.swapToDate || '')}</span>
+                </div>
+              ` : `
+                <div class="field">
+                  <span class="label">เริ่มหยุดงานตั้งแต่วันที่:</span>
+                  <span class="value">${startDateFormatted}</span>
+                </div>
+                <div class="field">
+                  <span class="label">ถึงวันที่หยุดงาน:</span>
+                  <span class="value">${endDateFormatted}</span>
+                </div>
+                <div class="field" style="grid-column: span 2;">
+                  <span class="label">รวมจำนวนวันทำการลา:</span>
+                  <span class="value" style="font-weight: bold; color: #1e40af;">${req.days} วันทำการ</span>
+                </div>
+              `}
+            </div>
+
+            <div class="section-title">เหตุผลและความจำเป็นประกอบการพิจารณา</div>
+            <div class="reason-box">"${req.reason}"</div>
+
+            <div class="section-title">บันทึกขั้นตอนการพิจารณาและการอนุมัติ</div>
+            <div class="workflow">
+              <div class="signature-card">
+                <div class="stamp-checked">CHECKED</div>
+                <div class="signature-title">ผู้ตรวจสอบขั้นแรก (ฝ่ายบุคคล - HR)</div>
+                <div class="signature-line"></div>
+                <div class="signer-name">${req.hrApprovedBy || 'ฝ่ายทรัพยากรบุคคล (HR)'}</div>
+                <div class="sign-date">ผู้พิจารณากลั่นกรองใบลา</div>
+                <div class="sign-date" style="margin-top: 5px;"><strong>วันที่ตรวจสอบ:</strong> ${req.hrApprovedAt ? formatThaiDate(req.hrApprovedAt) : '-'}</div>
+              </div>
+
+              <div class="signature-card">
+                <div class="stamp-approved">APPROVED</div>
+                <div class="signature-title">ผู้อนุมัติขั้นสุดท้าย (ผู้จัดการ - Manager)</div>
+                <div class="signature-line"></div>
+                <div class="signer-name">${req.managerApprovedBy || 'ผู้จัดการ'}</div>
+                <div class="sign-date">ผู้อนุมัติอนุญาตการลาหยุดงาน</div>
+                <div class="sign-date" style="margin-top: 5px;"><strong>วันที่อนุมัติ:</strong> ${req.managerApprovedAt ? formatThaiDate(req.managerApprovedAt) : '-'}</div>
+              </div>
+            </div>
+
+            <div class="footer-info">
+              เอกสารนี้จัดทำและอนุมัติขึ้นโดยสมบูรณ์ผ่านระบบ OfficeConnect HQ OS • พิมพ์เมื่อวันที่ ${new Date().toLocaleDateString('th-TH')} • ความถูกต้องสามารถยืนยันได้จากฐานข้อมูลกลาง
+            </div>
+          </div>
+          <script>
+            window.onload = function() {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   // Statistics counters
   const myLeaves = isEmployeeOnly ? leaveRequests.filter(l => l.employeeId === currentUser?.employeeId) : leaveRequests;
 
@@ -244,15 +540,27 @@ export default function LeaveSection({
             {isEmployeeOnly ? 'ยื่นใบคำขอลากิจส่วนบุคคล ตรวจสอบสิทธิวันหยุดคงเหลือ และประวัติย้อนหลัง' : 'ตรวจสอบโควตา อนุมัติวันหยุด และตรวจสอบตารางลางานของพนักงาน'}
           </p>
         </div>
-        <button
-          onClick={handleOpenRequestModal}
-          disabled={employees.length === 0}
-          className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-medium px-4 py-2.5 rounded-xl text-sm shadow-md transition cursor-pointer self-start sm:self-center"
-          id="btn-add-leave-request"
-        >
-          <PlusCircle className="w-4 h-4" />
-          {isEmployeeOnly ? 'สร้างใบคำขอลากิจใหม่' : 'เขียนใบลาพนักงานรายบุคคล'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
+          {canClearHistory && (
+            <button
+              onClick={() => setShowClearConfirmModal(true)}
+              className="flex items-center justify-center gap-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-650 hover:text-rose-850 font-bold px-4 py-2.5 rounded-xl text-sm shadow-xs transition cursor-pointer"
+              id="btn-clear-leave-history"
+            >
+              <Trash2 className="w-4 h-4" />
+              เคลียร์ประวัติรายการ
+            </button>
+          )}
+          <button
+            onClick={handleOpenRequestModal}
+            disabled={employees.length === 0}
+            className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-medium px-4 py-2.5 rounded-xl text-sm shadow-md transition cursor-pointer"
+            id="btn-add-leave-request"
+          >
+            <PlusCircle className="w-4 h-4" />
+            {isEmployeeOnly ? 'สร้างใบคำขอลากิจใหม่' : 'เขียนใบลาพนักงานรายบุคคล'}
+          </button>
+        </div>
       </div>
 
       {/* Tab Switcher */}
@@ -486,6 +794,20 @@ export default function LeaveSection({
                           </div>
                         )}
                       </div>
+
+                      {/* Print Approved Leave Button */}
+                      {req.status === 'approved' && (
+                        <div className="flex flex-col gap-1.5 w-full sm:w-auto" id={`leave-print-${req.id}`}>
+                          <button
+                            onClick={() => handlePrintLeaveDoc(req)}
+                            className="flex items-center justify-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-600 hover:text-blue-700 text-xs font-bold px-3 py-1.5 rounded-lg transition cursor-pointer shadow-xs"
+                            title="พิมพ์เอกสารขออนุมัติการลางาน"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            <span>พิมพ์ใบอนุมัติการลา (Print)</span>
+                          </button>
+                        </div>
+                      )}
 
                       {/* Actions buttons */}
                       {!isEmployeeOnly && (
@@ -862,6 +1184,57 @@ export default function LeaveSection({
                   id="leave-modal-ok"
                 >
                   {actingLeaveReq.action === 'approve' ? 'ใช่, อนุมัติการลา' : 'ใช่, ปฏิเสธการลา'}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Clear All Leave History Confirm Modal */}
+      {showClearConfirmModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" id="leave-clear-confirm-popup">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-2xl max-w-sm w-full shadow-2xl border border-slate-100 overflow-hidden"
+            id="leave-clear-confirm-box"
+          >
+            <div className="p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-rose-50 text-rose-600">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900 font-sans">
+                  เคลียร์ประวัติคำขอลากิจทั้งหมด
+                </h3>
+              </div>
+              
+              <p className="text-xs text-slate-500 leading-relaxed font-sans font-medium">
+                คุณแน่ใจหรือไม่ที่จะ<strong>ลบประวัติและคำขอลากิจของพนักงานทั้งหมด</strong>ออกจากระบบ? การดำเนินการนี้จะลบข้อมูลออกจากระบบ Cloud และไม่สามารถกู้คืนได้
+              </p>
+              
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowClearConfirmModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition cursor-pointer"
+                  id="leave-clear-modal-cancel"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onClearAllLeaveRequests) {
+                      onClearAllLeaveRequests();
+                    }
+                    setShowClearConfirmModal(false);
+                  }}
+                  className="px-5 py-2 text-white text-xs font-semibold rounded-xl shadow-sm transition cursor-pointer bg-rose-600 hover:bg-rose-500 shadow-rose-200"
+                  id="leave-clear-modal-ok"
+                >
+                  ใช่, ลบทั้งหมด
                 </button>
               </div>
             </div>

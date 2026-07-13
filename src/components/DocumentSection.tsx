@@ -65,6 +65,22 @@ interface DocumentSectionProps {
 
 const INITIAL_DOCUMENTS: OfficeDocument[] = [];
 
+const formatThaiDate = (dateStr: string): string => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+  
+  const BEYear = year > 2400 ? year : year + 543;
+  const padDay = day < 10 ? `0${day}` : `${day}`;
+  const padMonth = month < 10 ? `0${month}` : `${month}`;
+  
+  return `${padDay}/${padMonth}/${BEYear}`;
+};
+
 export default function DocumentSection({ currentUser, employees }: DocumentSectionProps) {
   const isAdmin = currentUser?.role === 'admin';
   const isEmployee = currentUser?.role === 'employee';
@@ -483,7 +499,7 @@ export default function DocumentSection({ currentUser, employees }: DocumentSect
               </div>
               <div class="meta-row">
                 <div class="meta-label">วันที่เขียน:</div>
-                <div class="meta-value">${req.createdAt}</div>
+                <div class="meta-value">${formatThaiDate(req.createdAt)}</div>
               </div>
             </div>
 
@@ -1153,7 +1169,7 @@ export default function DocumentSection({ currentUser, employees }: DocumentSect
                             <span>•</span>
                             <span>แผนก: {req.department}</span>
                             <span>•</span>
-                            <span className="font-mono text-[10px]">{req.createdAt}</span>
+                            <span className="font-mono text-[10px]">{formatThaiDate(req.createdAt)}</span>
                           </div>
                         </div>
                       </div>
@@ -1388,7 +1404,7 @@ export default function DocumentSection({ currentUser, employees }: DocumentSect
 
                   <div className="grid grid-cols-2 gap-y-2 text-slate-600">
                     <div><strong>เรียนพิจารณา:</strong> {viewingWrittenRequest.attentionTo}</div>
-                    <div><strong>วันที่บันทึกยื่น:</strong> {viewingWrittenRequest.createdAt}</div>
+                    <div><strong>วันที่บันทึกยื่น:</strong> {formatThaiDate(viewingWrittenRequest.createdAt)}</div>
                     <div><strong>ผู้เขียนคำขอ:</strong> {viewingWrittenRequest.writerName} ({viewingWrittenRequest.writerEmpId})</div>
                     <div><strong>สังกัดหน่วยงาน:</strong> {viewingWrittenRequest.department}</div>
                   </div>

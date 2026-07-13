@@ -101,6 +101,9 @@ export interface SystemSettings {
   lineChannelToken?: string;
   lineChannelSecret?: string;
   lineWebhookUrl?: string;
+  lineNotifyToken?: string;
+  lineManagerUserId?: string;
+  enableLineNotification?: boolean;
 }
 
 export interface UserAccountPermissions {
@@ -112,6 +115,7 @@ export interface UserAccountPermissions {
   canManageSettings?: boolean;
   canViewArchives?: boolean;
   canManageSupplyItems?: boolean;
+  canClearLeaveHistory?: boolean;
 }
 
 export interface UserAccount {

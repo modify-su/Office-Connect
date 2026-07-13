@@ -321,6 +321,32 @@ export async function clearAllAttendanceCloud() {
   }
 }
 
+export async function clearAllLeaveRequestsCloud() {
+  try {
+    const colRef = collection(db, 'leaveRequests');
+    let snap;
+    try {
+      snap = await getDocs(colRef);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'leaveRequests');
+      return;
+    }
+
+    const batch = writeBatch(db);
+    snap.docs.forEach(d => {
+      batch.delete(d.ref);
+    });
+
+    try {
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'leaveRequests');
+    }
+  } catch (err) {
+    console.error('Error clearing leave requests on cloud:', err);
+  }
+}
+
 // --- RESET ALL STATE MUTATOR ---
 export async function resetAllCloudStateCloud() {
   const collections = [

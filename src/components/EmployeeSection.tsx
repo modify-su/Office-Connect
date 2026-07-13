@@ -75,6 +75,22 @@ const formatCitizenId = (value: string): string => {
   return parts.join('-');
 };
 
+const formatThaiDisplayDate = (dateStr: string): string => {
+  if (!dateStr) return '-';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+  
+  const BEYear = year > 2400 ? year : year + 543;
+  const padDay = day < 10 ? `0${day}` : `${day}`;
+  const padMonth = month < 10 ? `0${month}` : `${month}`;
+  
+  return `${padDay}/${padMonth}/${BEYear}`;
+};
+
 export default function EmployeeSection({
   employees,
   onAddEmployee,
@@ -368,7 +384,7 @@ export default function EmployeeSection({
                     myEmployee.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
                   }`}>{myEmployee.status === 'active' ? 'ปฏิบัติงานปกติ' : 'ลางาน/พักสัญญา'}</span>
                 </div>
-                <p className="text-xs text-slate-400 font-mono">รหัสพนักงาน: <span className="font-bold text-slate-700">{myEmployee.employeeId}</span> | วันเวลาเริ่มสัญญาจ้างตัวจริง: {myEmployee.startDate}</p>
+                <p className="text-xs text-slate-400 font-mono">รหัสพนักงาน: <span className="font-bold text-slate-700">{myEmployee.employeeId}</span> | วันเวลาเริ่มสัญญาจ้างตัวจริง: {formatThaiDisplayDate(myEmployee.startDate)}</p>
               </div>
             </div>
 
@@ -383,11 +399,11 @@ export default function EmployeeSection({
                   </div>
                   <div className="flex justify-between py-2 border-b border-slate-50">
                     <span className="text-slate-400">วันเดือนปีเกิด:</span>
-                    <span className="font-semibold text-slate-700">{myEmployee.birthDate}</span>
+                    <span className="font-semibold text-slate-700">{formatThaiDisplayDate(myEmployee.birthDate)}</span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-slate-50">
                     <span className="text-slate-400">ความยาวอายุงาน / วันที่เริ่มงาน:</span>
-                    <span className="font-semibold text-slate-700">{myEmployee.startDate}</span>
+                    <span className="font-semibold text-slate-700">{formatThaiDisplayDate(myEmployee.startDate)}</span>
                   </div>
                 </div>
               </div>
@@ -569,7 +585,7 @@ export default function EmployeeSection({
                     <td className="px-6 py-4 whitespace-nowrap text-slate-500 font-mono text-xs">
                       <div className="flex items-center gap-1">
                         <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                        {emp.startDate}
+                        {formatThaiDisplayDate(emp.startDate)}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -667,7 +683,7 @@ export default function EmployeeSection({
                   <p className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-0.5">วันเริ่มทำงาน</p>
                   <p className="font-mono text-slate-700 flex items-center gap-1 mt-0.5">
                     <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                    {emp.startDate}
+                    {formatThaiDisplayDate(emp.startDate)}
                   </p>
                 </div>
                 <div className="col-span-2 space-y-1">
@@ -765,11 +781,11 @@ export default function EmployeeSection({
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-dashed border-slate-100">
                       <span className="text-slate-400">วันเดือนปีเกิด:</span>
-                      <span className="font-semibold text-slate-700">{viewingEmployee.birthDate}</span>
+                      <span className="font-semibold text-slate-700">{formatThaiDisplayDate(viewingEmployee.birthDate)}</span>
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-dashed border-slate-100">
                       <span className="text-slate-400">วันที่เริ่มต้นสัญญาจ้าง:</span>
-                      <span className="font-semibold text-slate-700">{viewingEmployee.startDate}</span>
+                      <span className="font-semibold text-slate-700">{formatThaiDisplayDate(viewingEmployee.startDate)}</span>
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-dashed border-slate-100">
                       <span className="text-slate-400">สถานะจ้างงาน:</span>

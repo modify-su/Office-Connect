@@ -82,6 +82,7 @@ export default function SettingsSection({
   const [modalCanManageSettings, setModalCanManageSettings] = useState(false);
   const [modalCanViewArchives, setModalCanViewArchives] = useState(false);
   const [modalCanManageSupplyItems, setModalCanManageSupplyItems] = useState(false);
+  const [modalCanClearLeaveHistory, setModalCanClearLeaveHistory] = useState(false);
 
   const handleOpenPermissionsModal = (acc: UserAccount) => {
     setSelectedPermsAccount(acc);
@@ -94,6 +95,7 @@ export default function SettingsSection({
     setModalCanManageSettings(acc.permissions?.canManageSettings || false);
     setModalCanViewArchives(acc.permissions?.canViewArchives || false);
     setModalCanManageSupplyItems(acc.permissions?.canManageSupplyItems || false);
+    setModalCanClearLeaveHistory(acc.permissions?.canClearLeaveHistory || false);
   };
 
   const applyPermissionTemplate = (type: 'hr' | 'inventory' | 'general' | 'coadmin') => {
@@ -107,6 +109,7 @@ export default function SettingsSection({
       setModalCanManageSettings(false);
       setModalCanViewArchives(true);
       setModalCanManageSupplyItems(false);
+      setModalCanClearLeaveHistory(true);
     } else if (type === 'inventory') {
       setModalRole('employee');
       setModalCanApproveLeave(false);
@@ -117,6 +120,7 @@ export default function SettingsSection({
       setModalCanManageSettings(false);
       setModalCanViewArchives(false);
       setModalCanManageSupplyItems(true);
+      setModalCanClearLeaveHistory(false);
     } else if (type === 'general') {
       setModalRole('employee');
       setModalCanApproveLeave(false);
@@ -127,6 +131,7 @@ export default function SettingsSection({
       setModalCanManageSettings(false);
       setModalCanViewArchives(false);
       setModalCanManageSupplyItems(false);
+      setModalCanClearLeaveHistory(false);
     } else if (type === 'coadmin') {
       setModalRole('employee');
       setModalCanApproveLeave(true);
@@ -137,6 +142,7 @@ export default function SettingsSection({
       setModalCanManageSettings(true);
       setModalCanViewArchives(true);
       setModalCanManageSupplyItems(true);
+      setModalCanClearLeaveHistory(true);
     }
   };
 
@@ -154,7 +160,8 @@ export default function SettingsSection({
           canManageEmployees: modalCanManageEmployees,
           canManageSettings: modalCanManageSettings,
           canViewArchives: modalCanViewArchives,
-          canManageSupplyItems: modalCanManageSupplyItems
+          canManageSupplyItems: modalCanManageSupplyItems,
+          canClearLeaveHistory: modalCanClearLeaveHistory
         }
       });
       setUserNotification(`อัปเดตสิทธิ์ผู้ใช้ ${selectedPermsAccount.name} เรียบร้อยแล้ว`);
@@ -1601,6 +1608,20 @@ export default function SettingsSection({
                         type="checkbox"
                         checked={modalCanViewArchives}
                         onChange={(e) => setModalCanViewArchives(e.target.checked)}
+                        className="w-4 h-4 text-indigo-600 border-slate-200 rounded focus:ring-indigo-500 cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Can clear leave history */}
+                    <div className="flex items-center justify-between p-2.5 bg-slate-50/60 rounded-xl border border-slate-100">
+                      <div>
+                        <span className="text-xs font-bold text-slate-700 block">สิทธิ์ลบหรือเคลียร์ประวัติรายการขอลางาน</span>
+                        <span className="text-[10px] text-slate-400">อนุญาตให้ล้างข้อมูลประวัติคำขอลากิจทั้งหมดของพนักงานออกจากระบบ</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={modalCanClearLeaveHistory}
+                        onChange={(e) => setModalCanClearLeaveHistory(e.target.checked)}
                         className="w-4 h-4 text-indigo-600 border-slate-200 rounded focus:ring-indigo-500 cursor-pointer"
                       />
                     </div>

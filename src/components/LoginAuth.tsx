@@ -25,7 +25,7 @@ interface LoginAuthProps {
   employees: Employee[];
   onLoginSuccess: (user: UserAccount) => void;
   onRegisterCustomEmployee: (newEmployee: Omit<Employee, 'id'>, account: UserAccount) => void;
-  onUpdateAccountPassword: (email: string, newPass: string, clearRequiresPasswordChange?: boolean) => void;
+  onUpdateAccountPassword: (email: string, newPass: string, clearRequiresPasswordChange?: boolean, newUsername?: string) => void;
   departments?: string[];
   settings?: SystemSettings;
 }
@@ -61,6 +61,7 @@ export default function LoginAuth({
   
   // First Login Password Change state
   const [pendingChangePassAccount, setPendingChangePassAccount] = useState<UserAccount | null>(null);
+  const [newEmployeeUsername, setNewEmployeeUsername] = useState('');
   const [newEmployeePassword, setNewEmployeePassword] = useState('');
   const [confirmNewEmployeePassword, setConfirmNewEmployeePassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -140,10 +141,11 @@ export default function LoginAuth({
     // Intercept if first login change password is required
     if (matched.requiresPasswordChange) {
       setPendingChangePassAccount(matched);
+      setNewEmployeeUsername(matched.username || matched.email.split('@')[0] || '');
       setNewEmployeePassword('');
       setConfirmNewEmployeePassword('');
       setMode('first-login-change-password');
-      setSuccessAlert('ยืนยันตัวตนสำเร็จ! เพื่อความปลอดภัยสูงสุด กรุณากำหนดรหัสผ่านใหม่ของท่านเอง');
+      setSuccessAlert('ยืนยันตัวตนสำเร็จ! เพื่อความปลอดภัยสูงสุด กรุณากำหนดชื่อผู้ใช้งาน (User) และรหัสผ่านใหม่ของท่านเอง');
       return;
     }
 
@@ -166,6 +168,24 @@ export default function LoginAuth({
       return;
     }
 
+    const trimmedUser = newEmployeeUsername.trim();
+    if (!trimmedUser || trimmedUser.length < 3) {
+      setErrorAlert('ชื่อผู้ใช้งานใหม่ต้องมีความยาวอย่างน้อย 3 ตัวอักษร');
+      return;
+    }
+
+    // Check if username is already taken by another user
+    const userExists = accounts.some(
+      acc => 
+        acc.email.toLowerCase() !== pendingChangePassAccount.email.toLowerCase() &&
+        acc.username && 
+        acc.username.toLowerCase() === trimmedUser.toLowerCase()
+    );
+    if (userExists) {
+      setErrorAlert('ชื่อผู้ใช้งานนี้ถูกใช้งานแล้วในระบบ กรุณาเลือกชื่อผู้ใช้งานอื่น');
+      return;
+    }
+
     const trimmedPass = newEmployeePassword.trim();
     if (!trimmedPass || trimmedPass.length < 4) {
       setErrorAlert('รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 4 ตัวอักษรเพื่อความปลอดภัย');
@@ -177,20 +197,21 @@ export default function LoginAuth({
       return;
     }
 
-    if (newEmployeePassword === pendingChangePassAccount.password) {
-      setErrorAlert('กรุณาตั้งรหัสผ่านใหม่ที่ไม่ซ้ำกับรหัสผ่านตั้งต้นที่แอดมินกำหนดให้');
+    if (newEmployeePassword === pendingChangePassAccount.password && trimmedUser === (pendingChangePassAccount.username || '')) {
+      setErrorAlert('กรุณาตั้งชื่อผู้ใช้งานหรือรหัสผ่านใหม่ที่ไม่ซ้ำกับของเดิม');
       return;
     }
 
     // Call callback to update in storage
-    onUpdateAccountPassword(pendingChangePassAccount.email, newEmployeePassword, true);
+    onUpdateAccountPassword(pendingChangePassAccount.email, newEmployeePassword, true, trimmedUser);
 
-    setSuccessAlert('บันทึกรหัสผ่านใหม่ของท่านเสร็จสมบูรณ์เรียบร้อย! กำลังนำเข้าสู่ระบบ...');
+    setSuccessAlert('บันทึกชื่อผู้ใช้งานและรหัสผ่านใหม่ของท่านเสร็จสมบูรณ์เรียบร้อย! กำลังนำเข้าสู่ระบบ...');
     
     // Success Authentication and transition
     setTimeout(() => {
       onLoginSuccess({
         ...pendingChangePassAccount,
+        username: trimmedUser,
         password: newEmployeePassword,
         requiresPasswordChange: false
       });
@@ -404,7 +425,7 @@ export default function LoginAuth({
                 <div className="text-center mb-4">
                   <span className="bg-blue-950/60 text-blue-400 text-xs font-semibold px-3.5 py-1.5 rounded-full border border-blue-900/60 inline-flex items-center gap-1.5">
                     <Lock className="w-3.5 h-3.5" />
-                    ลงชื่อเข้าใช้ระบบ (Unified Login)
+                    ลงชื่อเข้าใช้งาน
                   </span>
                 </div>
 
@@ -779,10 +800,10 @@ export default function LoginAuth({
               <form onSubmit={handleFirstLoginChangePasswordSubmit} className="space-y-4" id="form-first-login-change-password">
                 <div className="text-center">
                   <span className="bg-amber-950/60 text-amber-400 text-[10px] uppercase font-bold tracking-widest px-2.5 py-1 rounded-full border border-amber-900/60 inline-flex items-center gap-1">
-                    ⚠️ กำหนดรหัสผ่านส่วนตัวใหม่
+                    ⚠️ กำหนดชื่อผู้ใช้และรหัสผ่านใหม่
                   </span>
                   <p className="text-xs text-slate-400 mt-2">
-                    บัญชีนี้ถูกสร้างโดยผู้ดูแลระบบด้วยรหัสผ่านตั้งต้น เพื่อสิทธิ์ความเป็นส่วนตัวกรุณากำหนดรหัสผ่านใหม่ที่ท่านจำได้คนเดียว
+                    บัญชีนี้ถูกสร้างโดยผู้ดูแลระบบเป็นครั้งแรก เพื่อสิทธิ์และความปลอดภัยสูงสุด กรุณากำหนดชื่อผู้ใช้งาน (User) และรหัสผ่านใหม่ด้วยตัวท่านเอง
                   </p>
                 </div>
 
@@ -792,8 +813,26 @@ export default function LoginAuth({
                     <span className="font-bold text-white">{pendingChangePassAccount.name}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">ชื่อล็อกอิน/อีเมล:</span>
+                    <span className="text-slate-400">อีเมลตั้งต้น:</span>
                     <span className="font-mono font-semibold text-slate-200">{pendingChangePassAccount.email}</span>
+                  </div>
+                </div>
+
+                {/* Username Input */}
+                <div className="space-y-1.5">
+                  <label className="text-xs text-slate-300 block font-medium">ชื่อผู้ใช้งานใหม่ (Username)</label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500 pointer-events-none">
+                      <Users className="w-4 h-4 text-slate-400" />
+                    </span>
+                    <input
+                      type="text"
+                      required
+                      placeholder="กำหนดชื่อผู้ใช้งาน (เช่น somchai_j)"
+                      value={newEmployeeUsername}
+                      onChange={(e) => setNewEmployeeUsername(e.target.value.replace(/\s+/g, ''))}
+                      className="w-full pl-9 pr-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    />
                   </div>
                 </div>
 
@@ -845,7 +884,7 @@ export default function LoginAuth({
                   className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold py-2.5 rounded-xl text-sm shadow-md shadow-blue-950/40 transition cursor-pointer"
                 >
                   <UserCheck className="w-4 h-4" />
-                  บันทึกรหัสผ่านและเริ่มเข้าสู่ระบบ
+                  บันทึกข้อมูลและเริ่มเข้าสู่ระบบ
                 </button>
 
                 <div className="text-center pt-2 border-t border-slate-700/50">

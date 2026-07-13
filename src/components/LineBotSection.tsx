@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   MessageSquare, 
   Bot, 
@@ -11,6 +11,8 @@ import {
   Check as CheckedIcon
 } from 'lucide-react';
 import { SystemSettings, Employee } from '../types';
+import { collection, onSnapshot, query, orderBy, limit, deleteDoc, getDocs } from 'firebase/firestore';
+import { db } from '../firebase';
 
 interface LineBotSectionProps {
   settings: SystemSettings;
@@ -32,11 +34,51 @@ export default function LineBotSection({
   const [lineChannelToken, setLineChannelToken] = useState(settings.lineChannelToken || '');
   const [lineChannelSecret, setLineChannelSecret] = useState(settings.lineChannelSecret || '');
 
+  // LINE Notification configuration
+  const [lineManagerUserId, setLineManagerUserId] = useState(settings.lineManagerUserId || '');
+  const [enableLineNotification, setEnableLineNotification] = useState(settings.enableLineNotification !== false);
+  const [isTestingNotify, setIsTestingNotify] = useState<boolean>(false);
+
   // Webhook Simulator local states
   const [simEmployeeId, setSimEmployeeId] = useState<string>('');
   const [simText, setSimText] = useState<string>('เข้างาน');
-  const [simLogs, setSimLogs] = useState<Array<{ type: 'user' | 'reply' | 'info'; text: string }>>([]);
+  const [simLogs, setSimLogs] = useState<Array<{ type: 'user' | 'reply' | 'info'; text: string; quickReplies?: Array<{ label: string; text: string }> }>>([]);
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
+
+  // LINE Live push notification log tab states
+  const [activeSimTab, setActiveSimTab] = useState<'chat' | 'push_logs'>('chat');
+  const [lineNotifs, setLineNotifs] = useState<Array<{ id: string; to: string; toName: string; type: string; message: string; createdAt: string }>>([]);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'lineNotifications'),
+      orderBy('createdAt', 'desc'),
+      limit(25)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const notifs: any[] = [];
+      snapshot.forEach((docSnap) => {
+        notifs.push({
+          id: docSnap.id,
+          ...docSnap.data()
+        });
+      });
+      setLineNotifs(notifs);
+    }, (error) => {
+      console.error('Error listening to lineNotifications:', error);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleClearNotifs = async () => {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'lineNotifications'));
+      const deletePromises = querySnapshot.docs.map(d => deleteDoc(d.ref));
+      await Promise.all(deletePromises);
+    } catch (err) {
+      console.error('Error clearing lineNotifications:', err);
+    }
+  };
 
   const handleSaveLineSettings = (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,19 +95,81 @@ export default function LineBotSection({
     }, 3000);
   };
 
-  const handleSimulateWebhook = async () => {
-    if (!simText.trim()) return;
+  const handleSaveNotificationSettings = (e: React.FormEvent) => {
+    e.preventDefault();
+    onUpdateSettings({
+      ...settings,
+      lineManagerUserId,
+      enableLineNotification
+    });
+    setUserNotification("บันทึกการตั้งค่าระบบแจ้งเตือนผู้อนุมัติทาง LINE เรียบร้อยแล้ว!");
+    setTimeout(() => {
+      setUserNotification(null);
+    }, 3000);
+  };
+
+  const handleTestNotification = async () => {
+    setIsTestingNotify(true);
+    setUserNotification(null);
+    setUserErrorNotification(null);
+    
+    const mockLeaveRequest = {
+      employeeId: 'TEST-999',
+      employeeName: 'พนักงานทดสอบ ระบบแจ้งเตือน',
+      leaveType: 'annual',
+      startDate: new Date().toISOString().split('T')[0],
+      endDate: new Date().toISOString().split('T')[0],
+      days: 1,
+      reason: 'ทดสอบส่งข้อความแจ้งเตือนผู้อนุมัติผ่านปุ่ม Test Connection',
+      status: 'pending'
+    };
+
+    try {
+      // First save to ensure server has latest keys if user edited them
+      onUpdateSettings({
+        ...settings,
+        lineManagerUserId,
+        enableLineNotification
+      });
+
+      const response = await fetch('/api/line/notify-approver', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leaveRequest: mockLeaveRequest })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setUserNotification("ส่งข้อความทดสอบไปยัง LINE สำเร็จ! กรุณาตรวจสอบโทรศัพท์หรือหน้าต่างแชท LINE OA");
+      } else {
+        setUserErrorNotification(`ไม่สามารถส่งข้อความทดสอบได้: ${data.reason || 'กรุณาตรวจสอบการตั้งค่า'}`);
+      }
+    } catch (err) {
+      console.error('Error during testing notification:', err);
+      setUserErrorNotification("เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setIsTestingNotify(false);
+      setTimeout(() => {
+        setUserNotification(null);
+        setUserErrorNotification(null);
+      }, 5000);
+    }
+  };
+
+  const handleSimulateWebhook = async (overrideText?: any) => {
+    const textToSimulate = (typeof overrideText === 'string') ? overrideText : simText;
+    if (!textToSimulate || typeof textToSimulate !== 'string' || !textToSimulate.trim()) return;
 
     setIsSimulating(true);
     
     // Add User Message bubble
-    const userMsg = simText.trim();
+    const userMsg = textToSimulate.trim();
     setSimLogs(prev => [...prev, { type: 'user', text: userMsg }]);
 
     try {
       // 1. Fire a real HTTP request to the running Webhook endpoint on backend!
       // This will execute the database writes (clock-in, clock-out, leave submission) in Firestore!
-      await fetch('/api/line/webhook', {
+      const response = await fetch('/api/line/webhook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -87,64 +191,36 @@ export default function LineBotSection({
         })
       });
 
-      // 2. Local response mockup for high-fidelity interactive chat bubbles!
+      const data = await response.json();
+      const simReplies = data?.simulationReplies || [];
+
+      // 2. Display the actual responses generated by the state machine and logic on the server!
       setTimeout(() => {
-        const textLower = userMsg.toLowerCase();
-        let replyText = '';
-        
-        // Find matching employee
-        const emp = employees.find(e => e.employeeId === simEmployeeId);
+        if (simReplies && simReplies.length > 0) {
+          simReplies.forEach((reply: any) => {
+            const replyText = reply.text || '';
+            let replyQuickReplies: Array<{ label: string; text: string }> | undefined = undefined;
 
-        if (!emp) {
-          // If not linked yet, check for employee ID pattern (e.g. AWA-001, EMP-001)
-          const empIdMatch = userMsg.match(/[A-Z0-9]+-\d+/i) || userMsg.match(/EMP-\d+/i);
-          if (empIdMatch) {
-            const matchedEmpId = empIdMatch[0].toUpperCase();
-            const targetEmp = employees.find(e => e.employeeId?.toUpperCase() === matchedEmpId);
-            if (targetEmp) {
-              replyText = `เชื่อมโยงบัญชีสำเร็จแล้วครับ! 🎉\n\nยินดีต้อนรับคุณ ${targetEmp.firstName} ${targetEmp.lastName} (${targetEmp.position}) เข้าสู่ระบบช่วยเหลือพนักงานออฟฟิศผ่าน LINE Bot ประจำองค์กรครับ\n\nท่านสามารถพิมพ์คำสั่งต่อไปนี้เพื่อสั่งการระบบได้ทันที:\n• พิมพ์ "เข้างาน" เพื่อลงเวลาเข้างาน\n• พิมพ์ "ออกงาน" เพื่อลงเวลาออกงาน\n• พิมพ์ "เช็ควันลา" เพื่อตรวจสอบโควตาวันลาคงเหลือ\n• พิมพ์ "ขอลา" เพื่อส่งใบลาเข้าระบบ`;
-              // Auto set the dropdown to this employee to simulate they are now linked!
-              setSimEmployeeId(targetEmp.employeeId);
-            } else {
-              replyText = `❌ ไม่พบรหัสพนักงาน "${matchedEmpId}" ในระบบฐานข้อมูลของบริษัท กรุณาตรวจสอบรหัสพนักงานให้ถูกต้องและลองพิมพ์ใหม่อีกครั้งครับ`;
+            if (reply.quickReply && reply.quickReply.items) {
+              replyQuickReplies = reply.quickReply.items.map((item: any) => ({
+                action: {
+                  label: item.action?.label || '',
+                  text: item.action?.text || ''
+                }
+              })).map((item: any) => ({
+                label: item.action.label,
+                text: item.action.text
+              }));
             }
-          } else {
-            replyText = `สวัสดีครับ ยินดีต้อนรับสู่ระบบช่วยเหลือพนักงานผ่าน LINE Bot 🤖\n\n⚠️ ขณะนี้บัญชี LINE ของคุณยังไม่ได้เชื่อมโยงเข้ากับระบบพนักงาน\n\n👉 กรุณาเชื่อมโยงบัญชีโดยการพิมพ์รหัสพนักงานของคุณ เช่น:\n\nAWA-001 หรือ EMP-001\n\n(พิมพ์ส่งรหัสพนักงานของคุณเข้ามาได้เลยครับ)`;
-          }
+
+            setSimLogs(prev => [...prev, { type: 'reply', text: replyText, quickReplies: replyQuickReplies }]);
+          });
         } else {
-          // Process commands for linked employee
-          if (textLower.includes('เช็ควันลา') || textLower.includes('วันลา') || textLower.includes('โควตา') || textLower === 'leave') {
-            const sickMax = settings.maxLeaveDays?.sick ?? 30;
-            const annualMax = settings.maxLeaveDays?.annual ?? 12;
-            const personalMax = settings.maxLeaveDays?.personal ?? 6;
-            
-            replyText = `📊 สรุปโควตาวันลาของคุณ ${emp.firstName} ${emp.lastName}\n\n` +
-                        `• ลาป่วย: ใช้ไป 0/${sickMax} วัน (คงเหลือ ${sickMax} วัน)\n` +
-                        `• ลาพักร้อน: ใช้ไป 0/${annualMax} วัน (คงเหลือ ${annualMax} วัน)\n` +
-                        `• ลากิจ: ใช้ไป 0/${personalMax} วัน (คงเหลือ ${personalMax} วัน)`;
-          } else if (textLower.includes('เข้างาน') || textLower.includes('ลงชื่อเข้างาน') || textLower.includes('checkin') || textLower.includes('check in') || textLower === 'clock in') {
-            const timeStr = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.';
-            replyText = `✅ บันทึกเวลาเข้างานสำเร็จ! ⏰\n\nพนักงาน: ${emp.firstName} ${emp.lastName}\nวันที่: ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}\nเวลาเข้างาน: ${timeStr}\nสถานะ: 🟢 ปกติ\n\nขอให้มีความสุขกับการทำงานในวันนี้ครับ! 💼`;
-          } else if (textLower.includes('ออกงาน') || textLower.includes('ลงชื่อออกงาน') || textLower.includes('checkout') || textLower.includes('check out') || textLower === 'clock out') {
-            const timeStr = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.';
-            replyText = `✅ บันทึกเวลาออกงานสำเร็จ! 🚪\n\nพนักงาน: ${emp.firstName} ${emp.lastName}\nวันที่: ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}\nเวลาออกงาน: ${timeStr}\n\nเดินทางกลับบ้านและพักผ่อนให้เต็มที่ครับ! 🏡`;
-          } else if (textLower.startsWith('ขอลา') || textLower.startsWith('/ขอลา')) {
-            const leaveMatch = userMsg.match(/ขอลา\s+(ลาป่วย|ลากิจ|ลาพักร้อน|ลาพักผ่อน)\s+(\d+)\s+วัน\s+ตั้งแต่วันที่\s+(\d{1,2}\/\d{1,2}\/\d{4})\s+เหตุผล\s+(.+)/i);
-            if (leaveMatch) {
-              const type = leaveMatch[1];
-              const days = leaveMatch[2];
-              const date = leaveMatch[3];
-              const reason = leaveMatch[4];
-              replyText = `✅ ส่งใบอนุมัติลาพักผ่อนสำเร็จแล้วครับ! 📨\n\nรายละเอียดใบลา:\n• ผู้ลา: ${emp.firstName} ${emp.lastName}\n• ประเภท: ${type}\n• จำนวน: ${days} วัน\n• ตั้งแต่วันที่: ${date}\n• เหตุผล: ${reason}\n\n⏳ ขณะนี้ระบบได้ส่งเอกสารเพื่อรออนุมัติไปยังฝ่ายบุคคล (HR) และผู้จัดการของคุณเรียบร้อยแล้ว`;
-            } else {
-              replyText = `📝 วิธีการส่งใบลาหยุดผ่าน LINE Bot:\n\nกรุณาพิมพ์ข้อความส่งในรูปแบบด้านล่างนี้:\n\nขอลา [ประเภทลา] [จำนวนวัน] วัน ตั้งแต่วันที่ [วว/ดด/ปปปป] เหตุผล [ระบุเหตุผล]\n\n👉 ตัวอย่างคำลา:\n• ขอลา ลาป่วย 1 วัน ตั้งแต่วันที่ 08/07/2026 เหตุผล เป็นไข้ตัวร้อน\n• ขอลา ลากิจ 2 วัน ตั้งแต่วันที่ 15/07/2026 เหตุผล ไปทำธุระต่างจังหวัด`;
-            }
-          } else {
-            replyText = `ยินดีต้อนรับคุณ ${emp.firstName} 🤖\n\nท่านสามารถสั่งการระบบด้วยข้อความคำสั่งต่อไปนี้ได้ทันทีครับ:\n\n⏰ ระบบลงชื่อเข้า-ออกงาน\n• พิมพ์ "เข้างาน" หรือ "ลงชื่อเข้างาน"\n• พิมพ์ "ออกงาน" หรือ "ลงชื่อออกงาน"\n\n📊 โควตาวันลาหยุดพนักงาน\n• พิมพ์ "เช็ควันลา" เพื่อตรวจสอบสิทธิ์คงเหลือ\n\n📝 การยื่นเอกสารขอลาพักผ่อน\n• พิมพ์ "ขอลา" เพื่อดูวิธีการยื่นใบลา`;
-          }
+          setSimLogs(prev => [...prev, { 
+            type: 'reply', 
+            text: `⚠️ ระบบได้รับข้อความแล้ว แต่ไม่มีข้อความตอบกลับจากระบบอัตโนมัติ` 
+          }]);
         }
-
-        setSimLogs(prev => [...prev, { type: 'reply', text: replyText }]);
         setIsSimulating(false);
       }, 650);
 
@@ -154,7 +230,9 @@ export default function LineBotSection({
       setIsSimulating(false);
     }
 
-    setSimText('');
+    if (typeof overrideText !== 'string') {
+      setSimText('');
+    }
   };
 
   return (
@@ -280,6 +358,75 @@ export default function LineBotSection({
               </button>
             </div>
           </div>
+
+          {/* Approver Alerts Settings Card */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+            <h3 className="text-base font-bold text-slate-800 font-sans flex items-center gap-2 pb-2 border-b border-slate-50">
+              <Zap className="w-5 h-5 text-indigo-600 fill-indigo-100" />
+              แจ้งเตือนผู้อนุมัติผ่าน LINE (Approver Alerts)
+            </h3>
+            
+            <p className="text-xs text-slate-500 leading-relaxed">
+              เมื่อพนักงานส่งคำขอลาหยุดงาน ระบบสามารถส่งแจ้งเตือนรายละเอียดใบลาไปยังผู้จัดการหรือฝ่ายบุคคลทางแอปพลิเคชัน LINE ได้แบบเรียลไทม์
+            </p>
+
+            <form onSubmit={handleSaveNotificationSettings} className="space-y-4">
+              {/* Enable Toggle */}
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-xs font-bold text-slate-700">เปิดใช้งานระบบส่งแจ้งเตือนทาง LINE</span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    checked={enableLineNotification}
+                    onChange={(e) => setEnableLineNotification(e.target.checked)}
+                    className="sr-only peer" 
+                  />
+                  <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                </label>
+              </div>
+
+              {/* LINE Bot Push Notification Target */}
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-650 flex items-center justify-between">
+                  <span>LINE User ID / Group ID ของผู้อนุมัติ</span>
+                  <span className="text-[10px] text-indigo-600 font-semibold bg-indigo-50 px-1.5 py-0.5 rounded">
+                    LINE Messaging API 🟢
+                  </span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="ป้อน LINE User ID (เช่น U123456...) หรือ Group ID (ขึ้นต้นด้วย C...)"
+                  value={lineManagerUserId}
+                  onChange={(e) => setLineManagerUserId(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                />
+                <p className="text-[10px] text-slate-500 leading-tight space-y-1 pt-1">
+                  <span>📢 <strong>คำอธิบาย:</strong> เนื่องจากระบบ LINE Notify ได้ปิดตัวลงอย่างเป็นทางการ ทางระบบจึงเปลี่ยนมาใช้ <strong>LINE Messaging API (LINE Bot Push)</strong> ซึ่งมีความปลอดภัยและเป็นสากลกว่า</span>
+                  <br />
+                  <span>💡 ท่านสามารถระบุได้มากกว่า 1 รายการโดยแยกด้วย <strong>เครื่องหมายจุลภาค (,)</strong> เช่น <code>U12345..., U67890..., C98765...</code> เพื่อส่งข้อมูลให้ผู้อนุมัติหรือผู้จัดการหลายท่านพร้อมกัน</span>
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="submit"
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs shadow-md transition cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  บันทึกตั้งค่าแจ้งเตือน
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTestNotification}
+                  disabled={isTestingNotify || !lineManagerUserId}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-750 font-bold rounded-xl text-xs transition disabled:opacity-50 cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5 text-slate-500" />
+                  {isTestingNotify ? 'กำลังทดสอบ...' : 'ทดสอบส่งข้อความ'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
 
         {/* Right Column - Simulator & Quick Guide (7 Cols) */}
@@ -322,9 +469,14 @@ export default function LineBotSection({
               </span>
             </h3>
 
-            <p className="text-xs text-slate-500">
-              ท่านสามารถจำลองพฤติกรรมการพิมพ์ของพนักงานเพื่อทดสอบการตอบสนองของเซิร์ฟเวอร์และการบันทึกเวลาทำงานลงบนฐานข้อมูลได้ทันทีโดยไม่ต้องเชื่อมต่อ LINE จริง
-            </p>
+            <div className="bg-indigo-50/50 p-3.5 rounded-xl border border-indigo-100 text-xs text-slate-600 leading-relaxed space-y-1">
+              <span className="font-bold text-indigo-800 flex items-center gap-1">
+                💡 คำแนะนำการจำลอง (Webhook Simulator Guide)
+              </span>
+              <p>
+                เลือกบัญชีพนักงานที่ต้องการจำลองทางด้านล่าง (ระบบจะเชื่อมโยง LINE ID จำลองให้อัตโนมัติ) จากนั้นเลือกคำสั่งด่วนหรือพิมพ์ข้อความ เช่น <code>เข้างาน</code>, <code>ออกงาน</code> หรือ <code>เช็ควันลา</code> แล้วกดปุ่มจำลองส่งข้อความเพื่อดูการทำงานและผลลัพธ์ในฐานข้อมูลเสมือนใช้งานจริงได้ทันที!
+              </p>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               {/* Left side: simulation options */}
@@ -379,59 +531,129 @@ export default function LineBotSection({
                 </button>
               </div>
 
-              {/* Right side: Mock LINE Chat UI */}
+              {/* Right side: Mock LINE Chat UI & Push Notification Feed */}
               <div className="md:col-span-7 flex flex-col border border-slate-200 rounded-2xl overflow-hidden bg-[#7494C4] h-[280px]">
-                <div className="bg-[#2B3545] p-2 px-3 text-white text-xs font-bold flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <Bot className="w-3.5 h-3.5 text-emerald-400" />
-                    LINE Chat Simulator
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setSimLogs([])}
-                    className="text-[10px] hover:underline opacity-80 cursor-pointer"
-                  >
-                    ล้างแชท
-                  </button>
-                </div>
-                
-                {/* Message Bubbles Container */}
-                <div className="flex-1 p-3 overflow-y-auto space-y-2.5 flex flex-col">
-                  {simLogs.length === 0 ? (
-                    <div className="text-center text-[11px] text-[#A6BCD9] my-auto">
-                      ไม่มีประวัติการจำลองในขณะนี้<br />
-                      กรุณากดจำลองคำสั่งด้านซ้ายมือเพื่อเริ่มต้นทดสอบ
-                    </div>
+                <div className="bg-[#2B3545] p-1.5 px-3 text-white text-xs font-bold flex items-center justify-between font-sans">
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setActiveSimTab('chat')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-sans transition ${activeSimTab === 'chat' ? 'bg-[#4DDF4B] text-slate-900 font-bold' : 'text-slate-350 hover:text-white'}`}
+                    >
+                      💬 LINE Chat
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveSimTab('push_logs')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-sans transition flex items-center gap-1 ${activeSimTab === 'push_logs' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-350 hover:text-white'}`}
+                    >
+                      🔔 LINE Push Logs
+                      {lineNotifs.length > 0 && (
+                        <span className="inline-flex items-center justify-center px-1.5 py-0.2 text-[8px] font-black leading-none text-white bg-rose-600 rounded-full animate-pulse">
+                          {lineNotifs.length}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                  
+                  {activeSimTab === 'chat' ? (
+                    <button
+                      type="button"
+                      onClick={() => setSimLogs([])}
+                      className="text-[10px] hover:underline opacity-80 cursor-pointer"
+                    >
+                      ล้างแชท
+                    </button>
                   ) : (
-                    simLogs.map((log, lidx) => {
-                      if (log.type === 'info') {
-                        return (
-                          <div key={lidx} className="self-center bg-black/10 text-[10px] text-white px-2.5 py-0.5 rounded-full font-sans max-w-[90%] text-center">
-                            {log.text}
-                          </div>
-                        );
-                      } else if (log.type === 'reply') {
-                        return (
-                          <div key={lidx} className="flex items-start gap-1.5 self-start max-w-[85%]">
-                            <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center text-[10px] border border-slate-200 text-[#2B3545] font-black font-sans shrink-0">
-                              🤖
-                            </div>
-                            <div className="bg-white p-2 rounded-xl text-slate-800 text-[11px] leading-relaxed shadow-xs relative whitespace-pre-line font-sans">
-                              {log.text}
-                            </div>
-                          </div>
-                        );
-                      } else {
-                        // Sent message (green bubble)
-                        return (
-                          <div key={lidx} className="bg-[#4DDF4B] p-2 rounded-xl text-slate-800 text-[11px] leading-relaxed max-w-[80%] self-end shadow-xs font-sans">
-                            {log.text}
-                          </div>
-                        );
-                      }
-                    })
+                    <button
+                      type="button"
+                      onClick={handleClearNotifs}
+                      className="text-[10px] hover:underline text-rose-300 hover:text-rose-200 cursor-pointer"
+                    >
+                      ล้างประวัติแจ้งเตือน
+                    </button>
                   )}
                 </div>
+                
+                {activeSimTab === 'chat' ? (
+                  <div className="flex-1 p-3 overflow-y-auto space-y-2.5 flex flex-col">
+                    {simLogs.length === 0 ? (
+                      <div className="text-center text-[11px] text-[#A6BCD9] my-auto">
+                        ไม่มีประวัติการจำลองในขณะนี้<br />
+                        กรุณากดจำลองคำสั่งด้านซ้ายมือเพื่อเริ่มต้นทดสอบ
+                      </div>
+                    ) : (
+                      simLogs.map((log, lidx) => {
+                        if (log.type === 'info') {
+                          return (
+                            <div key={lidx} className="self-center bg-black/10 text-[10px] text-white px-2.5 py-0.5 rounded-full font-sans max-w-[90%] text-center">
+                              {log.text}
+                            </div>
+                          );
+                        } else if (log.type === 'reply') {
+                          return (
+                            <div key={lidx} className="flex flex-col gap-1 items-start self-start max-w-[90%]">
+                              <div className="flex items-start gap-1.5">
+                                <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center text-[10px] border border-slate-200 text-[#2B3545] font-black font-sans shrink-0">
+                                  🤖
+                                </div>
+                                <div className="bg-white p-2 rounded-xl text-slate-800 text-[11px] leading-relaxed shadow-xs relative whitespace-pre-line font-sans">
+                                  {log.text}
+                                </div>
+                              </div>
+                              {log.quickReplies && log.quickReplies.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1 pl-[30px] max-w-full">
+                                  {log.quickReplies.map((qr, qridx) => (
+                                    <button
+                                      key={qridx}
+                                      type="button"
+                                      onClick={() => handleSimulateWebhook(qr.text)}
+                                      className="px-2 py-1 text-[9px] bg-white/90 hover:bg-white text-indigo-700 hover:text-indigo-800 border border-slate-200 rounded-full font-semibold transition shadow-xs cursor-pointer inline-flex items-center"
+                                    >
+                                      {qr.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        } else {
+                          // Sent message (green bubble)
+                          return (
+                            <div key={lidx} className="bg-[#4DDF4B] p-2 rounded-xl text-slate-800 text-[11px] leading-relaxed max-w-[80%] self-end shadow-xs font-sans">
+                              {log.text}
+                            </div>
+                          );
+                        }
+                      })
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex-1 p-3 overflow-y-auto space-y-2 flex flex-col bg-slate-900 text-slate-100">
+                    {lineNotifs.length === 0 ? (
+                      <div className="text-center text-[11px] text-slate-400 my-auto">
+                        ไม่มีประวัติการส่งข้อความแจ้งเตือน (LINE Push) ในขณะนี้<br />
+                        ระบบจะบันทึกและแสดงที่นี่เมื่อมีการเพิ่มคำขอลา หรือทำการอนุมัติคำขอลา
+                      </div>
+                    ) : (
+                      lineNotifs.map((notif) => (
+                        <div key={notif.id} className="p-2.5 bg-slate-800 rounded-xl border border-slate-700 text-left space-y-1 transition hover:bg-slate-750">
+                          <div className="flex items-center justify-between">
+                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-black tracking-wide uppercase ${notif.type === 'approver' ? 'bg-indigo-950 text-indigo-300 border border-indigo-900' : 'bg-emerald-950 text-emerald-300 border border-emerald-900'}`}>
+                              📬 {notif.toName}
+                            </span>
+                            <span className="text-[8px] text-slate-400 font-mono">
+                              {notif.createdAt ? new Date(notif.createdAt).toLocaleTimeString('th-TH') : ''}
+                            </span>
+                          </div>
+                          <p className="text-[9.5px] font-mono leading-normal whitespace-pre-line text-slate-200 border-l border-indigo-500/50 pl-2">
+                            {notif.message}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>

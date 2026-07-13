@@ -51,6 +51,7 @@ import {
   saveAttendanceRecordCloud,
   deleteAttendanceRecordCloud,
   clearAllAttendanceCloud,
+  clearAllLeaveRequestsCloud,
   resetAllCloudStateCloud
 } from './lib/dbSync';
 
@@ -323,6 +324,21 @@ export default function App() {
       handleFirestoreError(error, OperationType.GET, 'attendanceRecords');
     });
 
+    // Sync LINE simulated notifications for live toaster feedback
+    const startTime = new Date().toISOString();
+    const unsubLineNotifs = onSnapshot(collection(db, 'lineNotifications'), (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const notif = change.doc.data();
+          if (notif.createdAt && notif.createdAt > startTime) {
+            triggerToast(`💬 [LINE Notification for ${notif.toName || 'User'}]\n${notif.message}`, 'sync');
+          }
+        }
+      });
+    }, (error) => {
+      console.error('Error syncing lineNotifications:', error);
+    });
+
     return () => {
       unsubEmployees();
       unsubLeaves();
@@ -332,6 +348,7 @@ export default function App() {
       unsubSettings();
       unsubArchives();
       unsubAttendance();
+      unsubLineNotifs();
     };
   }, []);
 
@@ -538,7 +555,24 @@ export default function App() {
     setLeaveRequests(nextList);
     saveStoredData({ leaveRequests: nextList });
     saveLeaveRequestCloud(newReq);
-    triggerToast('ยื่นคำขอลาพักร้อนสำเร็จและเก็บข้อมูลแบบเรียลไทม์');
+
+    // Send real-time notification to LINE approver group/manager via full-stack endpoint
+    fetch('/api/line/notify-approver', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ leaveRequest: newReq })
+    })
+    .then(res => res.json())
+    .then(data => {
+      console.log('LINE notification response:', data);
+    })
+    .catch(err => {
+      console.error('Error sending LINE notification:', err);
+    });
+
+    triggerToast('ยื่นคำขอลาพักร้อนสำเร็จและส่งแจ้งเตือน LINE ให้ผู้อนุมัติแล้ว');
   };
 
   const handleApproveLeave = (id: string) => {
@@ -582,18 +616,34 @@ export default function App() {
       return;
     }
 
+    let updatedReq: LeaveRequest | null = null;
     const updatedLeaves = leaveRequests.map(l => {
       if (l.id === id) {
         const u = { 
           ...l, 
           ...updatedFields
         };
+        updatedReq = u;
         saveLeaveRequestCloud(u);
         return u;
       }
       return l;
     });
     setLeaveRequests(updatedLeaves);
+
+    // Trigger LINE status notification
+    if (updatedReq) {
+      fetch('/api/line/notify-approver', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ leaveRequest: updatedReq })
+      })
+      .then(res => res.json())
+      .then(data => console.log('LINE Status Notification Response:', data))
+      .catch(err => console.error('Error sending LINE Status Notification:', err));
+    }
 
     if (nextStatus === 'approved') {
       const updatedEmployees = employees.map(emp => {
@@ -606,7 +656,379 @@ export default function App() {
       });
       setEmployees(updatedEmployees);
       saveStoredData({ leaveRequests: updatedLeaves, employees: updatedEmployees });
+      
+      // Generate Document File in localStorage for printing/filing
+      try {
+        const emp = employees.find(e => e.employeeId === targetLeave.employeeId);
+        const dept = emp ? emp.department : 'ฝ่ายปฏิบัติการ';
+        const pos = emp ? emp.position : 'พนักงาน';
+        
+        const leaveTypeNameMap: Record<string, string> = {
+          sick: 'ลาป่วย',
+          annual: 'ลาพักร้อน',
+          personal: 'ลากิจส่วนตัว',
+          maternity: 'ลาเพื่อการคลอดบุตร',
+          swap: 'สลับวันหยุดประจำสัปดาห์',
+          other: 'ลาอื่นๆ'
+        };
+        const leaveTypeThai = leaveTypeNameMap[targetLeave.leaveType] || 'ลากิจ';
+        
+        const formatThaiDateStr = (dStr: string) => {
+          if (!dStr) return '';
+          const pts = dStr.split('-');
+          if (pts.length !== 3) return dStr;
+          return `${pts[2]}/${pts[1]}/${parseInt(pts[0], 10) + 543}`;
+        };
+
+        const docTitle = `ใบอนุมัติการลา (${leaveTypeThai}) - ${targetLeave.employeeName}`;
+        const finalHrApprover = updatedFields.hrApprovedBy || targetLeave.hrApprovedBy || currentUser?.name || 'ฝ่ายบุคคล (HR)';
+        const finalHrDate = formatThaiDateStr(updatedFields.hrApprovedAt || targetLeave.hrApprovedAt || new Date().toISOString().split('T')[0]);
+        const finalManagerApprover = updatedFields.managerApprovedBy || currentUser?.name || 'ผู้จัดการ';
+        const finalManagerDate = formatThaiDateStr(updatedFields.managerApprovedAt || new Date().toISOString().split('T')[0]);
+        
+        const printHtml = `
+          <html>
+            <head>
+              <title>${docTitle}</title>
+              <style>
+                @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700;800&display=swap');
+                body {
+                  font-family: 'Sarabun', sans-serif;
+                  padding: 40px;
+                  color: #1a1a1a;
+                  line-height: 1.6;
+                  font-size: 15px;
+                  background-color: #ffffff;
+                }
+                .container {
+                  max-width: 800px;
+                  margin: 0 auto;
+                  border: 1px solid #ddd;
+                  padding: 50px;
+                  box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+                  position: relative;
+                }
+                .header {
+                  text-align: center;
+                  border-bottom: 2px solid #334155;
+                  padding-bottom: 20px;
+                  margin-bottom: 25px;
+                }
+                .title {
+                  font-size: 22px;
+                  font-weight: 700;
+                  color: #1e293b;
+                  margin: 0;
+                  letter-spacing: 0.05em;
+                }
+                .subtitle {
+                  font-size: 13px;
+                  color: #64748b;
+                  margin-top: 5px;
+                  font-weight: 500;
+                }
+                .doc-meta {
+                  display: flex;
+                  justify-content: space-between;
+                  font-size: 12px;
+                  color: #475569;
+                  margin-bottom: 20px;
+                  background-color: #f8fafc;
+                  padding: 10px 15px;
+                  border-radius: 8px;
+                  border: 1px solid #f1f5f9;
+                }
+                .section-title {
+                  font-size: 14px;
+                  font-weight: 700;
+                  color: #0f172a;
+                  border-left: 4px solid #2563eb;
+                  padding-left: 10px;
+                  margin-top: 25px;
+                  margin-bottom: 15px;
+                }
+                .grid {
+                  display: grid;
+                  grid-template-columns: 1fr 1fr;
+                  gap: 15px;
+                  margin-bottom: 20px;
+                }
+                .field {
+                  display: flex;
+                  align-items: baseline;
+                }
+                .label {
+                  font-weight: 600;
+                  color: #334155;
+                  min-width: 130px;
+                  flex-shrink: 0;
+                }
+                .value {
+                  flex-grow: 1;
+                  border-bottom: 1px dotted #cbd5e1;
+                  padding-left: 5px;
+                  color: #0f172a;
+                }
+                .reason-box {
+                  background-color: #f8fafc;
+                  border: 1px solid #e2e8f0;
+                  border-radius: 8px;
+                  padding: 15px;
+                  font-style: italic;
+                  color: #334155;
+                  margin-bottom: 25px;
+                  white-space: pre-wrap;
+                  font-size: 14px;
+                }
+                .workflow {
+                  display: grid;
+                  grid-template-columns: 1fr 1fr;
+                  gap: 20px;
+                  margin-top: 30px;
+                }
+                .signature-card {
+                  border: 1px solid #e2e8f0;
+                  border-radius: 12px;
+                  padding: 20px;
+                  text-align: center;
+                  background-color: #fff;
+                  position: relative;
+                }
+                .signature-title {
+                  font-size: 13px;
+                  font-weight: 700;
+                  color: #475569;
+                  margin-bottom: 15px;
+                }
+                .signature-line {
+                  margin-top: 40px;
+                  border-bottom: 1px solid #94a3b8;
+                  width: 80%;
+                  margin-left: auto;
+                  margin-right: auto;
+                }
+                .signer-name {
+                  font-size: 13px;
+                  font-weight: 600;
+                  color: #1e293b;
+                  margin-top: 8px;
+                }
+                .sign-date {
+                  font-size: 11px;
+                  color: #64748b;
+                  margin-top: 2px;
+                }
+                .stamp-approved {
+                  position: absolute;
+                  top: 15px;
+                  right: 20px;
+                  border: 3px double #10b981;
+                  color: #10b981;
+                  font-size: 11px;
+                  font-weight: 800;
+                  padding: 4px 10px;
+                  transform: rotate(-10deg);
+                  border-radius: 4px;
+                  background-color: rgba(16, 185, 129, 0.05);
+                }
+                .stamp-checked {
+                  position: absolute;
+                  top: 15px;
+                  right: 20px;
+                  border: 3px double #3b82f6;
+                  color: #3b82f6;
+                  font-size: 11px;
+                  font-weight: 800;
+                  padding: 4px 10px;
+                  transform: rotate(-10deg);
+                  border-radius: 4px;
+                  background-color: rgba(59, 130, 246, 0.05);
+                }
+                .footer-info {
+                  margin-top: 40px;
+                  text-align: center;
+                  font-size: 11px;
+                  color: #94a3b8;
+                  border-top: 1px solid #e2e8f0;
+                  padding-top: 15px;
+                }
+                @media print {
+                  body { padding: 0; background-color: #fff; }
+                  .container { border: none; box-shadow: none; padding: 0; }
+                }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header">
+                  <h1 class="title">ใบขออนุมัติการลางานอย่างเป็นทางการ</h1>
+                  <p class="subtitle">ระบบการจัดการและสารสนเทศงานบุคคล - OfficeConnect Platform</p>
+                </div>
+
+                <div class="doc-meta">
+                  <span><strong>เลขที่เอกสาร:</strong> LEAVE-${targetLeave.id.replace('leave-', '')}</span>
+                  <span><strong>วันที่ยื่นคำขอ:</strong> ${formatThaiDateStr(targetLeave.createdAt)}</span>
+                  <span><strong>สถานะเอกสาร:</strong> <span style="color: #10b981; font-weight: bold;">อนุมัติเรียบร้อยแล้ว</span></span>
+                </div>
+
+                <div class="section-title">ข้อมูลส่วนตัวพนักงานผู้ยื่นคำขอลา</div>
+                <div class="grid">
+                  <div class="field">
+                    <span class="label">ชื่อ - นามสกุล:</span>
+                    <span class="value">${targetLeave.employeeName}</span>
+                  </div>
+                  <div class="field">
+                    <span class="label">รหัสพนักงาน:</span>
+                    <span class="value" style="font-family: monospace; font-weight: bold;">${targetLeave.employeeId}</span>
+                  </div>
+                  <div class="field">
+                    <span class="label">ตำแหน่งหน้าที่:</span>
+                    <span class="value">${pos}</span>
+                  </div>
+                  <div class="field">
+                    <span class="label">แผนก / ฝ่าย:</span>
+                    <span class="value">${dept}</span>
+                  </div>
+                </div>
+
+                <div class="section-title">รายละเอียดข้อมูลการลางาน</div>
+                <div class="grid">
+                  <div class="field" style="grid-column: span 2;">
+                    <span class="label">ประเภทการลา:</span>
+                    <span class="value" style="font-weight: bold; color: #1e40af;">${leaveTypeThai}</span>
+                  </div>
+                  
+                  ${targetLeave.leaveType === 'swap' ? `
+                    <div class="field" style="grid-column: span 2;">
+                      <span class="label">สลับจากวันหยุดเดิม:</span>
+                      <span class="value" style="font-weight: bold;">${formatThaiDateStr(targetLeave.swapFromDate || '')}</span>
+                    </div>
+                    <div class="field" style="grid-column: span 2;">
+                      <span class="label">เพื่อสลับไปหยุดชดเชย:</span>
+                      <span class="value" style="font-weight: bold; color: #16a34a;">${formatThaiDateStr(targetLeave.swapToDate || '')}</span>
+                    </div>
+                  ` : `
+                    <div class="field">
+                      <span class="label">เริ่มหยุดงานตั้งแต่วันที่:</span>
+                      <span class="value">${formatThaiDateStr(targetLeave.startDate)}</span>
+                    </div>
+                    <div class="field">
+                      <span class="label">ถึงวันที่หยุดงาน:</span>
+                      <span class="value">${formatThaiDateStr(targetLeave.endDate)}</span>
+                    </div>
+                    <div class="field" style="grid-column: span 2;">
+                      <span class="label">รวมจำนวนวันทำการลา:</span>
+                      <span class="value" style="font-weight: bold; color: #1e40af;">${targetLeave.days} วันทำการ</span>
+                    </div>
+                  `}
+                </div>
+
+                <div class="section-title">เหตุผลและความจำเป็นประกอบการพิจารณา</div>
+                <div class="reason-box">"${targetLeave.reason}"</div>
+
+                <div class="section-title">บันทึกขั้นตอนการพิจารณาและการอนุมัติ</div>
+                <div class="workflow">
+                  <div class="signature-card">
+                    <div class="stamp-checked">CHECKED</div>
+                    <div class="signature-title">ผู้ตรวจสอบขั้นแรก (ฝ่ายบุคคล - HR)</div>
+                    <div class="signature-line"></div>
+                    <div class="signer-name">${finalHrApprover}</div>
+                    <div class="sign-date">ผู้พิจารณากลั่นกรองใบลา</div>
+                    <div class="sign-date" style="margin-top: 5px;"><strong>วันที่ตรวจสอบ:</strong> ${finalHrDate}</div>
+                  </div>
+
+                  <div class="signature-card">
+                    <div class="stamp-approved">APPROVED</div>
+                    <div class="signature-title">ผู้อนุมัติขั้นสุดท้าย (ผู้จัดการ - Manager)</div>
+                    <div class="signature-line"></div>
+                    <div class="signer-name">${finalManagerApprover}</div>
+                    <div class="sign-date">ผู้อนุมัติอนุญาตการลาหยุดงาน</div>
+                    <div class="sign-date" style="margin-top: 5px;"><strong>วันที่อนุมัติ:</strong> ${finalManagerDate}</div>
+                  </div>
+                </div>
+
+                <div class="footer-info">
+                  เอกสารนี้จัดทำและอนุมัติขึ้นโดยสมบูรณ์ผ่านระบบ OfficeConnect HQ OS • พิมพ์เมื่อวันที่ ${new Date().toLocaleDateString('th-TH')} • ความถูกต้องสามารถยืนยันได้จากฐานข้อมูลกลาง
+                </div>
+              </div>
+              <script>
+                window.onload = function() {
+                  window.print();
+                };
+              </script>
+            </body>
+          </html>
+        `;
+
+        const base64Url = 'data:text/html;charset=utf-8,' + encodeURIComponent(printHtml);
+        
+        // Save to office_documents
+        const existingDocsStr = localStorage.getItem('office_documents') || '[]';
+        let existingDocs = [];
+        try {
+          existingDocs = JSON.parse(existingDocsStr);
+        } catch (e) {
+          existingDocs = [];
+        }
+        
+        const maxCode = existingDocs.reduce((max: number, doc: any) => {
+          if (!doc || !doc.code) return max;
+          const num = parseInt(doc.code.replace(/[^\d]/g, ''));
+          return isNaN(num) ? max : Math.max(max, num);
+        }, 0);
+        const newCode = `DOC-LV-${String(maxCode + 1).padStart(3, '0')}`;
+        
+        const newDoc = {
+          id: `doc-leave-${targetLeave.id}`,
+          code: newCode,
+          name: docTitle,
+          category: 'ทรัพยากรบุคคล (HR)',
+          description: `ใบอนุมัติการลาของ ${targetLeave.employeeName} (${targetLeave.employeeId}) ได้รับการอนุมัติอย่างเป็นทางการแล้ว สามารถพิมพ์และเก็บเข้าแฟ้มประวัติ`,
+          fileSize: '15 KB',
+          fileType: 'PDF',
+          uploadedBy: currentUser?.name || 'ผู้จัดการ',
+          uploadedAt: new Date().toISOString().split('T')[0],
+          downloadUrl: base64Url,
+          isTemplate: false,
+          downloads: 0
+        };
+        
+        const cleanedDocs = existingDocs.filter((d: any) => d && d.id !== newDoc.id);
+        localStorage.setItem('office_documents', JSON.stringify([newDoc, ...cleanedDocs]));
+
+        // Save to office_written_requests
+        const existingWrittenStr = localStorage.getItem('office_written_requests') || '[]';
+        let existingWritten = [];
+        try {
+          existingWritten = JSON.parse(existingWrittenStr);
+        } catch (e) {
+          existingWritten = [];
+        }
+
+        const newWritten = {
+          id: `written-leave-${targetLeave.id}`,
+          formType: 'general',
+          subject: docTitle,
+          attentionTo: 'ฝ่ายทรัพยากรบุคคลและแฟ้มประวัติ',
+          writerName: targetLeave.employeeName,
+          writerEmpId: targetLeave.employeeId,
+          department: dept,
+          details: `รายละเอียดการลาที่อนุมัติ:\n- ประเภท: ${leaveTypeThai}\n- ช่วงเวลา: ${formatThaiDateStr(targetLeave.startDate)} ถึง ${formatThaiDateStr(targetLeave.endDate)}\n- รวม: ${targetLeave.days} วันทำการ\n- เหตุผล: ${targetLeave.reason}\n\nได้รับการอนุมัติขั้นสุดท้ายโดยผู้จัดการเรียบร้อยแล้ว`,
+          urgency: 'normal',
+          signatureName: targetLeave.employeeName,
+          createdAt: new Date().toISOString().split('T')[0],
+          status: 'reviewed'
+        };
+
+        const cleanedWritten = existingWritten.filter((w: any) => w && w.id !== newWritten.id);
+        localStorage.setItem('office_written_requests', JSON.stringify([newWritten, ...cleanedWritten]));
+        
+      } catch (err) {
+        console.error('Error generating document:', err);
+      }
+
       triggerToast('ผู้จัดการอนุมัติขั้นสุดท้ายสำเร็จ เปลี่ยนสถานะพนักงานเป็นลาพักผ่อนเรียบร้อยแล้ว');
+
     } else {
       saveStoredData({ leaveRequests: updatedLeaves });
       triggerToast('HR อนุมัติขั้นแรกสำเร็จ ส่งคำขอไปยังผู้จัดการเพื่อการอนุมัติสุดท้าย');
@@ -614,6 +1036,7 @@ export default function App() {
   };
 
   const handleRejectLeave = (id: string) => {
+    let updatedReq: LeaveRequest | null = null;
     const nextList = leaveRequests.map(l => {
       if (l.id === id) {
         const u = { 
@@ -622,6 +1045,7 @@ export default function App() {
           reviewedBy: currentUser?.name || 'ฝ่ายบุคคล/ผู้จัดการ',
           reviewedAt: new Date().toISOString().split('T')[0]
         };
+        updatedReq = u;
         saveLeaveRequestCloud(u);
         return u;
       }
@@ -629,6 +1053,21 @@ export default function App() {
     });
     setLeaveRequests(nextList);
     saveStoredData({ leaveRequests: nextList });
+
+    // Trigger LINE status notification for rejection
+    if (updatedReq) {
+      fetch('/api/line/notify-approver', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ leaveRequest: updatedReq })
+      })
+      .then(res => res.json())
+      .then(data => console.log('LINE Reject Notification Response:', data))
+      .catch(err => console.error('Error sending LINE Reject Notification:', err));
+    }
+
     triggerToast('ปฏิเสธคำขอการลาพักผ่อนเรียบร้อยแล้ว');
   };
 
@@ -825,10 +1264,13 @@ export default function App() {
     saveAccountCloud(newAccount);
   };
 
-  const handleUpdatePassword = (email: string, newPass: string, clearRequiresPasswordChange?: boolean) => {
+  const handleUpdatePassword = (email: string, newPass: string, clearRequiresPasswordChange?: boolean, newUsername?: string) => {
     const updatedAccountsList = accounts.map(acc => {
       if (acc.email.toLowerCase() === email.toLowerCase().trim()) {
         const updated: UserAccount = { ...acc, password: newPass };
+        if (newUsername !== undefined && newUsername.trim() !== '') {
+          updated.username = newUsername.trim();
+        }
         if (clearRequiresPasswordChange !== undefined) {
           updated.requiresPasswordChange = !clearRequiresPasswordChange;
         }
@@ -926,6 +1368,13 @@ export default function App() {
     saveStoredData({ attendanceRecords: [] });
     clearAllAttendanceCloud();
     triggerToast('ล้างประวัติการลงเวลาปฏิบัติงานทั้งหมดเรียบร้อย');
+  };
+
+  const handleClearAllLeaveRequests = () => {
+    setLeaveRequests([]);
+    saveStoredData({ leaveRequests: [] });
+    clearAllLeaveRequestsCloud();
+    triggerToast('ล้างประวัติและรายการขอลางานทั้งหมดเรียบร้อยแล้ว');
   };
 
   const handleSetAttendanceRecords = (records: AttendanceRecord[]) => {
@@ -1040,11 +1489,11 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row text-slate-800 font-sans" id="applet-main-layout">
       
       {/* SIDEBAR NAVIGATION (Desktop) */}
-      <aside className={`hidden md:flex flex-col ${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-slate-900 text-slate-300 min-h-screen ${isSidebarCollapsed ? 'p-3' : 'p-5'} border-r border-slate-800 flex-shrink-0 transition-all duration-300 ease-in-out z-20`} id="desktop-sidebar">
+      <aside className={`hidden md:flex flex-col ${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-slate-950 text-slate-300 min-h-screen ${isSidebarCollapsed ? 'p-3' : 'p-5'} border-r border-slate-850 flex-shrink-0 transition-all duration-300 ease-in-out z-20`} id="desktop-sidebar">
         {/* Core Brand Header */}
-        <div className={`p-2 flex ${isSidebarCollapsed ? 'flex-col gap-3 items-center justify-center' : 'items-center justify-between'} pb-4 border-b border-slate-800`}>
+        <div className={`p-2 flex ${isSidebarCollapsed ? 'flex-col gap-3 items-center justify-center' : 'items-center justify-between'} pb-4 border-b border-slate-850`}>
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center text-white font-bold text-lg shadow-sm flex-shrink-0">
+            <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 via-blue-600 to-indigo-700 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-md shadow-indigo-500/10 flex-shrink-0">
               O
             </div>
             {!isSidebarCollapsed && (
@@ -1056,7 +1505,7 @@ export default function App() {
           </div>
           <button 
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} 
-            className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition cursor-pointer"
+            className="p-1.5 hover:bg-slate-900 rounded-lg text-slate-400 hover:text-white transition cursor-pointer"
             title={isSidebarCollapsed ? "ขยายแถบเมนู" : "ย่อแถบเมนู"}
             id="btn-sidebar-toggle"
           >
@@ -1065,7 +1514,7 @@ export default function App() {
         </div>
 
         {/* User Session Info Card (No Switcher) */}
-        <div className={`my-4 ${isSidebarCollapsed ? 'px-1 py-2 justify-center' : 'px-3 py-3'} bg-slate-800/50 rounded-xl border border-slate-800/80 flex items-center gap-3 overflow-hidden transition-all duration-300`} id="user-session-info-card">
+        <div className={`my-4 ${isSidebarCollapsed ? 'px-1 py-2 justify-center' : 'px-3 py-3'} bg-slate-900/60 rounded-xl border border-slate-850/80 flex items-center gap-3 overflow-hidden transition-all duration-300`} id="user-session-info-card">
           <div className="w-9 h-9 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center justify-center font-bold text-xs shadow-sm overflow-hidden flex-shrink-0">
             {currentUser?.role === 'admin' ? (
               'AD'
@@ -1105,8 +1554,8 @@ export default function App() {
                 }}
                 className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-4 py-3'} rounded-xl text-sm font-medium transition-all duration-300 ${
                   IsActive 
-                    ? 'bg-blue-600 text-white shadow-md' 
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-lg shadow-indigo-950/30 scale-[1.02]' 
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900 hover:translate-x-1'
                 }`}
                 title={isSidebarCollapsed ? item.label : undefined}
               >
@@ -1118,7 +1567,7 @@ export default function App() {
         </nav>
 
         {/* Sidebar Footer details */}
-        <div className={`pt-4 border-t border-slate-800 text-xs text-slate-500 ${isSidebarCollapsed ? 'space-y-4' : 'space-y-2'} transition-all duration-300`}>
+        <div className={`pt-4 border-t border-slate-850 text-xs text-slate-500 ${isSidebarCollapsed ? 'space-y-4' : 'space-y-2'} transition-all duration-300`}>
           {!isSidebarCollapsed ? (
             <>
               <p className="font-mono truncate text-slate-400 px-1" title={settings.companyName}>
@@ -1187,9 +1636,9 @@ export default function App() {
       </aside>
 
       {/* MOBILE HEADER (Phones & Tablets) */}
-      <header className="md:hidden bg-slate-900 text-slate-300 p-4 flex items-center justify-between border-b border-slate-800 sticky top-0 z-30" id="mobile-header">
+      <header className="md:hidden bg-slate-950 text-slate-300 p-4 flex items-center justify-between border-b border-slate-850 sticky top-0 z-30" id="mobile-header">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center text-white font-bold">
+          <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 via-blue-600 to-indigo-700 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-md">
             O
           </div>
           <div>
@@ -1202,7 +1651,7 @@ export default function App() {
 
         <button
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-300 transition cursor-pointer"
+          className="p-1.5 hover:bg-slate-900 rounded-lg text-slate-300 transition cursor-pointer"
           id="btn-mobile-menu-toggle"
         >
           {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -1216,7 +1665,7 @@ export default function App() {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="md:hidden bg-slate-950 border-b border-slate-800 text-slate-300 absolute w-full left-0 top-[69px] z-20 shadow-xl overflow-hidden"
+            className="md:hidden bg-slate-950 border-b border-slate-850 text-slate-300 absolute w-full left-0 top-[69px] z-20 shadow-xl overflow-hidden"
             id="mobile-nav-panel"
           >
             {/* User Session Info Card (No Switcher) */}
@@ -1255,9 +1704,9 @@ export default function App() {
                       setActiveTab(item.id);
                       setIsMobileMenuOpen(false);
                     }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition cursor-pointer ${
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${
                       IsActive 
-                        ? 'bg-blue-600 text-white' 
+                        ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md' 
                         : 'hover:bg-slate-900 text-slate-400'
                     }`}
                   >
@@ -1431,6 +1880,7 @@ export default function App() {
                   onAddLeaveRequest={handleAddLeaveRequest}
                   onApproveLeave={handleApproveLeave}
                   onRejectLeave={handleRejectLeave}
+                  onClearAllLeaveRequests={handleClearAllLeaveRequests}
                   defaultAddOpen={openLeaveAdd}
                   onClearDefaultAddOpen={() => setOpenLeaveAdd(false)}
                   currentUser={currentUser}
