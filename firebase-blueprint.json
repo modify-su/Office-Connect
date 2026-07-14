@@ -133,6 +133,21 @@
         "recordedBy": { "type": "string" }
       },
       "required": ["id", "employeeId", "employeeName", "date", "time", "type", "recordedBy"]
+    },
+    "LineNotification": {
+      "title": "LineNotification",
+      "description": "Simulated LINE notification event logged for real-time Web UI synchronization.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "to": { "type": "string" },
+        "toName": { "type": "string" },
+        "type": { "type": "string" },
+        "message": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "to", "toName", "type", "message", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -167,6 +182,10 @@
     "/attendanceRecords/{attendanceRecordId}": {
       "schema": "AttendanceRecord",
       "description": "In-out punch times, overtime, and punctuality logs."
+    },
+    "/lineNotifications/{notificationId}": {
+      "schema": "LineNotification",
+      "description": "Historical log of simulated LINE push notification messages."
     }
   }
 }

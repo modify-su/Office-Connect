@@ -33,5 +33,9 @@ service cloud.firestore {
     match /attendanceRecords/{attendanceRecordId} {
       allow read, write: if true;
     }
+    // Allow reading and writing for lineNotifications
+    match /lineNotifications/{notificationId} {
+      allow read, write: if true;
+    }
   }
 }

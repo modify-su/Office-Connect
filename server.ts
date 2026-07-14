@@ -245,6 +245,11 @@ async function sendLeaveStatusNotification(db: any, leaveRequest: any) {
         `💡 ท่านสามารถสอบถามรายละเอียดเพิ่มเติมหรือแก้ไขยื่นใหม่ได้โดยติดต่อฝ่ายบุคคลหรือผู้จัดการของท่านโดยตรงครับ`;
     }
 
+    // Helper to check for a valid LINE User/Group/Room ID format
+    const isValidLineId = (id: string) => {
+      return /^(U|C|R)[0-9a-fA-F]{32}$/.test(id);
+    };
+
     // 2. Send status notification to Approvers/Managers (Group or User ID)
     if (lineChannelToken && lineManagerUserId && approverMessage) {
       const recipients = lineManagerUserId
@@ -253,6 +258,10 @@ async function sendLeaveStatusNotification(db: any, leaveRequest: any) {
         .filter(id => id.length > 0);
 
       for (const recipientId of recipients) {
+        if (!isValidLineId(recipientId)) {
+          console.warn(`[LINE Sim Mode] Skipping actual LINE API call for recipient '${recipientId}' because it is not a valid LINE ID format (should start with U, C, or R followed by 32 hex characters). Simulated in Web UI instead.`);
+          continue;
+        }
         try {
           const payload = {
             to: recipientId,
@@ -280,27 +289,31 @@ async function sendLeaveStatusNotification(db: any, leaveRequest: any) {
 
     // 3. Send direct update to the requesting employee if they have a registered lineUserId
     if (lineChannelToken && employeeLineUserId && employeeMessage) {
-      try {
-        const payload = {
-          to: employeeLineUserId,
-          messages: [{ type: 'text', text: employeeMessage }]
-        };
+      if (!isValidLineId(employeeLineUserId)) {
+        console.warn(`[LINE Sim Mode] Skipping actual LINE API call for employee recipient '${employeeLineUserId}' because it is not a valid LINE ID format. Simulated in Web UI instead.`);
+      } else {
+        try {
+          const payload = {
+            to: employeeLineUserId,
+            messages: [{ type: 'text', text: employeeMessage }]
+          };
 
-        const response = await fetch('https://api.line.me/v2/bot/message/push', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${lineChannelToken}`
-          },
-          body: JSON.stringify(payload)
-        });
-        if (response.ok) {
-          console.log(`Sent direct status update to employee: ${employeeLineUserId}`);
-        } else {
-          console.error(`Failed to send LINE Bot status notification to employee ${employeeLineUserId}:`, response.status, await response.text());
+          const response = await fetch('https://api.line.me/v2/bot/message/push', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${lineChannelToken}`
+            },
+            body: JSON.stringify(payload)
+          });
+          if (response.ok) {
+            console.log(`Sent direct status update to employee: ${employeeLineUserId}`);
+          } else {
+            console.error(`Failed to send LINE Bot status notification to employee ${employeeLineUserId}:`, response.status, await response.text());
+          }
+        } catch (err) {
+          console.error(`Error sending direct status push to employee:`, err);
         }
-      } catch (err) {
-        console.error(`Error sending direct status push to employee:`, err);
       }
     }
 
